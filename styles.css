@@ -81,3 +81,5 @@ ul.users{padding-left:18px;margin:0 0 12px;line-height:2}
 .login-box .btn.primary{width:100%;padding:10px;margin-top:8px}
 .linkbtn{border:0;background:none;color:var(--muted);font:inherit;font-size:12px;margin-top:10px;cursor:pointer;text-decoration:underline}
 #pwMsg{margin-top:12px;color:var(--warn);font-size:13px}
+.tag.optout{background:#fde8e8;color:var(--danger)}
+textarea{border:1px solid var(--line);border-radius:6px;padding:6px 8px;font:inherit;max-width:100%}

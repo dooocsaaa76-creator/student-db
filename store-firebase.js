@@ -3,6 +3,7 @@
 //   students/{학생ID}        재원생·퇴원생 (status: 'active' | 'withdrawn')
 //   externalChunks/{id}      외부생 DB (행 묶음 단위로 저장)
 //   meta/main, meta/external 설정·최근 업로드 정보, 외부생 열 목록
+//   optOut/{숫자만 연락처}   문자 수신거부 번호
 //   logs/{auto}              작업 이력
 //   allowedUsers/{email}     접근 허용 계정 (mustChange: 초기 비밀번호 미변경)
 // ==========================================================================
@@ -39,12 +40,13 @@ async function commitInBatches(ops) {            // ops: (batch) => void
   }
 }
 
-// 외부생 행을 문서 크기 제한(1MB) 아래로 나누기
+// 외부생 행을 문서 크기 제한(1MiB) 아래로 나누기 (한글은 UTF-8로 3바이트라 실제 바이트 수로 계산)
+const enc = new TextEncoder();
 function chunkRows(rows) {
   const out = []; let cur = [], size = 0;
   for (const r of rows) {
-    const s = JSON.stringify(r).length * 2;
-    if (cur.length && (size + s > 700000 || cur.length >= 1500)) { out.push(cur); cur = []; size = 0; }
+    const s = enc.encode(JSON.stringify(r)).length + 16 * Object.keys(r).length;   // 필드 구조 여유분
+    if (cur.length && size + s > 800000) { out.push(cur); cur = []; size = 0; }
     cur.push(r); size += s;
   }
   if (cur.length) out.push(cur);
@@ -85,19 +87,26 @@ window.Store = {
     return (await getDocs(collection(db, "students"))).docs.map(d => d.data());
   },
   async loadAll() {
-    const [students, mainSnap, extSnap, chunkSnap, logSnap] = await Promise.all([
+    const [students, mainSnap, optSnap, logSnap] = await Promise.all([
       this.loadStudents(),
       getDoc(doc(db, "meta", "main")),
-      getDoc(doc(db, "meta", "external")),
-      getDocs(query(collection(db, "externalChunks"), orderBy("seq"))),
+      getDocs(collection(db, "optOut")),
       getDocs(query(collection(db, "logs"), orderBy("ts", "desc"), limit(200))),
     ]);
     return {
       students,
       meta: mainSnap.exists() ? mainSnap.data() : {},
-      external: { cols: extSnap.exists() ? (extSnap.data().cols || []) : [], rows: chunkSnap.docs.flatMap(d => d.data().rows || []) },
+      optOut: Object.fromEntries(optSnap.docs.map(d => [d.id, d.data()])),
       logs: logSnap.docs.map(d => d.data()),
     };
+  },
+  // 외부생 DB는 용량이 커서 외부생 탭을 열 때 따로 불러옴
+  async loadExternal() {
+    const [extSnap, chunkSnap] = await Promise.all([
+      getDoc(doc(db, "meta", "external")),
+      getDocs(query(collection(db, "externalChunks"), orderBy("seq"))),
+    ]);
+    return { cols: extSnap.exists() ? (extSnap.data().cols || []) : [], rows: chunkSnap.docs.flatMap(d => d.data().rows || []) };
   },
 
   /* ---------- 학생 ---------- */
@@ -124,6 +133,12 @@ window.Store = {
     await writeChunks(rows);
   },
 
+  /* ---------- 수신거부 ---------- */
+  async addOptOut(items) {
+    await commitInBatches(items.map(x => b => b.set(doc(db, "optOut", x.phone.replace(/\D/g, "")), x)));
+  },
+  removeOptOut(digits) { return deleteDoc(doc(db, "optOut", digits)); },
+
   /* ---------- 설정 · 이력 ---------- */
   saveMeta(patch) { return setDoc(doc(db, "meta", "main"), patch, { merge: true }); },
   addLog(entry) { return setDoc(doc(collection(db, "logs")), entry); },
@@ -139,6 +154,9 @@ window.Store = {
       ...students.map(r => b => b.set(doc(db, "students", docId(r.id)), r)),
     ]);
     await this.replaceExternal(d.external?.cols || [], d.external?.rows || []);
+    const oldOpt = await getDocs(collection(db, "optOut"));
+    await commitInBatches([...oldOpt.docs.map(x => b => b.delete(x.ref)),
+      ...Object.entries(d.optOut || {}).map(([k, v]) => b => b.set(doc(db, "optOut", k), v))]);
     await setDoc(doc(db, "meta", "main"), { settings: d.settings || { extPromote: true }, lastRoster: d.lastRoster || null, lastBackup: d.lastBackup || null });
   },
 

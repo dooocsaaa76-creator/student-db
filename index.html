@@ -44,6 +44,7 @@
     <button data-tab="active" class="on">재원생</button>
     <button data-tab="withdrawn">퇴원생</button>
     <button data-tab="external">외부생 DB</button>
+    <button data-tab="optout">수신거부</button>
     <button data-tab="backup">백업 · 설정</button>
   </nav>
   <span id="saveState"></span>
@@ -99,6 +100,7 @@
       <select id="wGrade"></select>
       <select id="wYear"></select>
       <label class="radio"><input type="checkbox" id="wMissing"> 연락처 미입력만</label>
+      <label class="radio"><input type="checkbox" id="wNoOpt" checked> 수신거부 제외</label>
       <span class="muted" id="wCount"></span>
     </div>
     <div class="tablewrap"><table id="wTable"></table></div>
@@ -140,6 +142,7 @@
         <label class="radio"><input type="radio" name="rMode" value="include"> 선택한 지역만</label>
         <label class="radio"><input type="radio" name="rMode" value="exclude"> 선택한 지역 제외</label>
       </div>
+      <div class="row" id="ePresets" style="margin-bottom:10px"></div>
       <div id="eRegions"></div>
     </div>
   </div>
@@ -147,10 +150,34 @@
   <div class="card">
     <div class="row" style="justify-content:space-between">
       <h2 style="margin:0">③ 결과 <span id="eResultCount"></span></h2>
-      <button class="btn primary" onclick="downloadExternal()">선택한 DB 엑셀 다운로드</button>
+      <div class="row"><label class="radio"><input type="checkbox" id="eDedupe" checked> 같은 연락처는 1건만 (형제 중복 발송 방지)</label>
+      <button class="btn primary" onclick="downloadExternal()">선택한 DB 엑셀 다운로드</button></div>
     </div>
     <p class="muted" id="eSummary"></p>
+    <p class="muted" style="margin-top:-6px">수신거부로 등록된 번호는 항상 자동으로 빠집니다. 표 왼쪽 [수신거부] 버튼으로 바로 등록할 수도 있습니다.</p>
     <div class="tablewrap"><table id="eTable"></table></div>
+  </div>
+</section>
+
+<!-- ===================== 수신거부 ===================== -->
+<section class="tab" id="tab-optout">
+  <div class="card">
+    <h2>문자 수신거부 등록</h2>
+    <p class="muted" style="margin-top:0">문자를 보내지 말아달라고 요청한 연락처를 등록하면 <b>외부생 DB·퇴원생 다운로드에서 항상 제외</b>됩니다. 외부생 DB를 새로 올려도 계속 제외됩니다.</p>
+    <div class="row" style="align-items:flex-start">
+      <textarea id="oPhones" rows="3" placeholder="전화번호 (여러 개는 줄바꿈 또는 쉼표로 구분)&#10;예) 010-1234-5678" style="width:280px"></textarea>
+      <input type="text" id="oName" placeholder="이름 (선택, 1건일 때)" style="width:150px">
+      <input type="text" id="oMemo" placeholder="메모 (예: 10/8 학부모 전화 요청)" style="width:260px">
+      <button class="btn primary" onclick="addOptOutFromForm()">수신거부 등록</button>
+    </div>
+  </div>
+  <div class="card">
+    <div class="row" style="margin-bottom:10px">
+      <input type="text" id="oSearch" placeholder="번호 / 이름 / 메모 검색" style="width:240px">
+      <button class="btn" onclick="exportOptOut()">수신거부 목록 내보내기</button>
+      <span class="muted" id="oCount"></span>
+    </div>
+    <div class="tablewrap"><table id="oTable"></table></div>
   </div>
 </section>
 
