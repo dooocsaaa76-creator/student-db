@@ -1,0 +1,9 @@
+# 학생 개인정보가 담긴 파일은 절대 GitHub에 올리지 않음
+*.xlsx
+*.xls
+*.csv
+*.json
+!firebase.json
+.firebase/
+.firebaserc
+node_modules/

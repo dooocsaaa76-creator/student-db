@@ -1,0 +1,17 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // 로그인했고, allowedUsers 목록에 이메일이 등록된 사람만 허용
+    function isAllowed() {
+      return request.auth != null &&
+        request.auth.token.email != null &&
+        exists(/databases/$(database)/documents/allowedUsers/$(request.auth.token.email.lower()));
+    }
+
+    // 학생 연락처 등 모든 데이터는 허용된 계정만 읽고 쓸 수 있음
+    match /{document=**} {
+      allow read, write: if isAllowed();
+    }
+  }
+}

@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>학생 DB 관리</title>
+<link rel="stylesheet" href="styles.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+</head>
+<body>
+
+<!-- ===================== 로그인 ===================== -->
+<div id="login" class="on">
+  <form class="login-box" id="loginForm">
+    <h1>학생 DB 관리</h1>
+    <p class="muted">관리자가 등록한 이메일 계정으로 로그인해 주세요.</p>
+    <input type="email" id="loginEmail" placeholder="이메일" autocomplete="username" required>
+    <input type="password" id="loginPw" placeholder="비밀번호" autocomplete="current-password" required>
+    <button class="btn primary" id="loginBtn" type="submit">로그인</button>
+    <button class="linkbtn" type="button" id="resetBtn">비밀번호를 잊으셨나요?</button>
+    <div id="loginMsg"></div>
+  </form>
+</div>
+
+<!-- ===================== 비밀번호 변경 ===================== -->
+<div id="pwBox">
+  <form class="login-box" id="pwForm">
+    <h1>비밀번호 변경</h1>
+    <p class="muted" id="pwNotice"></p>
+    <input type="password" id="pwCur" placeholder="현재 비밀번호" autocomplete="current-password">
+    <input type="password" id="pwNew" placeholder="새 비밀번호 (6자 이상)" autocomplete="new-password" required>
+    <input type="password" id="pwNew2" placeholder="새 비밀번호 확인" autocomplete="new-password" required>
+    <button class="btn primary" type="submit">변경하기</button>
+    <button class="linkbtn" type="button" id="pwCancel">취소</button>
+    <div id="pwMsg"></div>
+  </form>
+</div>
+
+<div id="app">
+<header>
+  <h1>학생 DB 관리</h1>
+  <nav>
+    <button data-tab="active" class="on">재원생</button>
+    <button data-tab="withdrawn">퇴원생</button>
+    <button data-tab="external">외부생 DB</button>
+    <button data-tab="backup">백업 · 설정</button>
+  </nav>
+  <span id="saveState"></span>
+  <div class="me"><button class="btn sm" id="refreshBtn" title="다른 사람이 수정한 내용 불러오기">새로고침</button><span id="meEmail"></span><button class="btn sm" id="pwChangeBtn">비밀번호 변경</button><button class="btn sm" id="logoutBtn">로그아웃</button></div>
+</header>
+
+<main>
+<!-- ===================== 재원생 ===================== -->
+<section class="tab on" id="tab-active">
+  <div class="card">
+    <h2>재원생 관리</h2>
+    <div class="row">
+      <button class="btn primary" onclick="pick('roster')">배치생 리스트 업로드</button>
+      <button class="btn" onclick="exportMissing()">연락처 미입력 명단 내보내기</button>
+      <button class="btn" onclick="pick('contacts')">연락처 일괄 업로드</button>
+      <button class="btn" onclick="exportStudents('active')">재원생 내보내기 (현재 필터)</button>
+    </div>
+    <div class="stats" id="activeStats"></div>
+    <p class="muted" style="margin:10px 0 0">
+      · 새 배치생 리스트를 올리면 같은 ID 학생의 연락처·메모는 그대로 유지되고, 명단에서 빠진 학생은 퇴원생으로 이동합니다. 한 학생이 여러 클래스를 들으면 한 명으로 합쳐 표시합니다.<br>
+      · 연락처 일괄 업로드: '연락처 미입력 명단'에 연락처를 채워 다시 올리면 ID 기준으로 반영됩니다. (빈 칸은 기존 값을 지우지 않습니다)<br>
+      · 표에서 연락처·메모를 입력하고 칸을 벗어나면 바로 저장됩니다.
+    </p>
+  </div>
+  <div class="card">
+    <div class="row" style="margin-bottom:10px">
+      <input type="text" id="aSearch" placeholder="이름 / ID / 학교 / 연락처 검색" style="width:240px">
+      <select id="aClass" style="width:260px"></select>
+      <select id="aTeacher"></select>
+      <select id="aGrade"></select>
+      <label class="radio"><input type="checkbox" id="aMissing"> 연락처 미입력만</label>
+      <span class="muted" id="aCount"></span>
+    </div>
+    <div class="tablewrap"><table id="aTable"></table></div>
+  </div>
+</section>
+
+<!-- ===================== 퇴원생 ===================== -->
+<section class="tab" id="tab-withdrawn">
+  <div class="card">
+    <h2>퇴원생 관리</h2>
+    <div class="row">
+      <button class="btn" onclick="exportStudents('withdrawn')">퇴원생 내보내기 (현재 필터)</button>
+      <button class="btn" onclick="exportMissing('withdrawn')">연락처 미입력 명단 내보내기</button>
+      <button class="btn" onclick="pick('contacts')">연락처 일괄 업로드</button>
+    </div>
+    <div class="info" id="wInfo"></div>
+    <div class="stats" id="wStats"></div>
+  </div>
+  <div class="card">
+    <div class="row" style="margin-bottom:10px">
+      <input type="text" id="wSearch" placeholder="이름 / ID / 학교 / 연락처 검색" style="width:240px">
+      <select id="wGrade"></select>
+      <select id="wYear"></select>
+      <label class="radio"><input type="checkbox" id="wMissing"> 연락처 미입력만</label>
+      <span class="muted" id="wCount"></span>
+    </div>
+    <div class="tablewrap"><table id="wTable"></table></div>
+  </div>
+</section>
+
+<!-- ===================== 외부생 ===================== -->
+<section class="tab" id="tab-external">
+  <div class="card">
+    <h2>외부생 DB 업로드</h2>
+    <div class="row">
+      <label>학년 기준 연도 <input type="number" id="eBaseYear" style="width:90px"></label>
+      <label class="radio"><input type="radio" name="eMode" value="append" checked> 기존 DB에 추가 (중복 제외)</label>
+      <label class="radio"><input type="radio" name="eMode" value="replace"> 기존 DB 전체 교체</label>
+      <button class="btn primary" onclick="pick('external')">외부생 엑셀 업로드</button>
+      <button class="btn danger" onclick="clearExternal()">외부생 DB 비우기</button>
+    </div>
+    <p class="muted" style="margin:8px 0 0">· '학년 기준 연도'는 업로드하는 파일의 학년이 몇 년도 기준인지 입력합니다. 해가 바뀌면 학년이 자동으로 올라갑니다 (설정에서 끌 수 있음).<br>
+    · 열 이름에 '학년', '지역'(또는 주소·거주지)이 있으면 자동 인식합니다. 그 외 열은 그대로 보존되어 다운로드됩니다. 이름+연락처가 같은 행은 중복으로 보고 제외합니다.</p>
+    <div class="stats" id="eStats"></div>
+  </div>
+
+  <div class="grid2">
+    <div class="card">
+      <h2>① 학년 선택</h2>
+      <div class="row" style="margin-bottom:8px">
+        <button class="btn sm" onclick="gradeAll(true)">전체 선택</button>
+        <button class="btn sm" onclick="gradeAll(false)">전체 해제</button>
+        <button class="btn sm" onclick="gradeBand('초')">초등만</button>
+        <button class="btn sm" onclick="gradeBand('중')">중등만</button>
+        <button class="btn sm" onclick="gradeBand('고')">고등만</button>
+      </div>
+      <div class="chips" id="eGrades"></div>
+    </div>
+    <div class="card">
+      <h2>② 지역 선택</h2>
+      <div style="margin-bottom:8px">
+        <label class="radio"><input type="radio" name="rMode" value="all" checked> 전체 (지역 무관)</label>
+        <label class="radio"><input type="radio" name="rMode" value="include"> 선택한 지역만</label>
+        <label class="radio"><input type="radio" name="rMode" value="exclude"> 선택한 지역 제외</label>
+      </div>
+      <div id="eRegions"></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="row" style="justify-content:space-between">
+      <h2 style="margin:0">③ 결과 <span id="eResultCount"></span></h2>
+      <button class="btn primary" onclick="downloadExternal()">선택한 DB 엑셀 다운로드</button>
+    </div>
+    <p class="muted" id="eSummary"></p>
+    <div class="tablewrap"><table id="eTable"></table></div>
+  </div>
+</section>
+
+<!-- ===================== 백업 · 설정 ===================== -->
+<section class="tab" id="tab-backup">
+  <div class="card">
+    <h2>접근 권한 관리</h2>
+    <p class="muted" style="margin-top:0">여기에 등록된 이메일 계정만 로그인할 수 있습니다. 추가하면 <b>초기 비밀번호 <span id="initPw"></span></b>로 계정이 만들어지고, 첫 로그인 때 비밀번호를 반드시 변경해야 합니다.</p>
+    <ul class="users" id="userList"></ul>
+    <div class="row">
+      <input type="text" id="newUserEmail" placeholder="이메일 (예: teacher@gmail.com)" style="width:280px">
+      <input type="text" id="newUserName" placeholder="이름 (선택)" style="width:140px">
+      <button class="btn primary" onclick="addUser()">추가</button>
+    </div>
+  </div>
+  <div class="card">
+    <h2>백업 / 복원</h2>
+    <div class="info">데이터는 Firebase에 저장되어 어느 PC에서든 로그인하면 같은 내용이 보입니다. 만일을 대비해 가끔 백업 파일을 받아 두세요.<br>
+    이전에 쓰던 '학생DB관리.html'(PC 저장 버전)의 백업 파일도 '불러오기'로 그대로 옮겨올 수 있습니다.</div>
+    <div class="row">
+      <button class="btn primary" onclick="backup()">백업 파일 저장 (.json)</button>
+      <button class="btn" onclick="pick('restore')">백업 파일 불러오기</button>
+      <span class="muted" id="lastBackup"></span>
+    </div>
+  </div>
+  <div class="card">
+    <h2>설정</h2>
+    <label class="radio"><input type="checkbox" id="extPromote"> 외부생 DB도 해가 바뀌면 학년 자동 진급</label>
+    <div class="info">
+      <b>학년 자동 진급 규칙</b> (퇴원생 · 외부생)<br>
+      · 학년은 '기록된 연도' 기준으로 저장되며, 해가 바뀔 때마다(1월 1일) 1학년씩 자동으로 올라갑니다.<br>
+      · 초1~초6 → 중1~중3 → 고1~고3 → 이후는 나이로 표시 (고3 다음 해 = 20세, 그 다음 해 = 21세 …)<br>
+      · 인식 가능한 학년 표기 예: 초3, 초5 (grade 5), 초등3, 중2, 중학교 2학년, 고1, 예비고1(=중3), 대1(=20세), 21세<br>
+      · 오늘 기준 연도: <b id="curYearLbl"></b>
+    </div>
+  </div>
+  <div class="card">
+    <h2>작업 이력</h2>
+    <ul class="log" id="logList"></ul>
+  </div>
+</section>
+</main>
+</div>
+
+<div class="modal-bg" id="modalBg"><div class="modal" id="modal"></div></div>
+<div id="busy"><div id="busyMsg"></div></div>
+<input type="file" id="filePick" accept=".xlsx,.xls,.csv,.json" style="display:none">
+
+<script src="app.js"></script>
+<script type="module" src="store-firebase.js"></script>
+</body>
+</html>
