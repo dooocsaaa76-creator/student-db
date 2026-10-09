@@ -426,7 +426,15 @@ const rowPhone = r => r._ph || digits(PHONE_COLS.map(c=>r[c]).find(Boolean));
 
 const extLevel = r => nowLevel(r._lv, r._yr, S.settings.extPromote);
 const extGradeKey = r => { const lv = extLevel(r); return lv==null ? '미분류' : gradeLabel(lv); };
-let gradeOff = new Set(), regionSel = new Set();
+// 지역 초기 설정: '선택한 지역 제외' + 대치·목동·평촌·마포 권역과 안산시 제외 → 서초·관악 권역과 지역 미입력만 남음
+const DEFAULT_REGION_MODE = 'exclude';
+const DEFAULT_REGIONS = [...['대치','목동','평촌','마포'].flatMap(k => REGION_PRESETS[k]), '경기 안산시'];
+let gradeOff = new Set(), regionSel = new Set(DEFAULT_REGIONS);
+function resetRegions(){
+  regionSel = new Set(DEFAULT_REGIONS);
+  document.querySelector(`input[name=rMode][value=${DEFAULT_REGION_MODE}]`).checked = true;
+  renderExternal();
+}
 const rMode = () => document.querySelector('input[name=rMode]:checked').value;
 
 // 업로드한 외부생 DB + 구글시트 설명회 신청자(leads) 합치기
@@ -573,7 +581,7 @@ function renderExternal(){
   const present = new Set(Object.keys(rCount));
   $('#ePresets').innerHTML = withRegion ? '<span class="muted">권역 선택:</span> ' + Object.entries(REGION_PRESETS).map(([name, regs]) => {
     const have = regs.filter(k => present.has(k)), on = have.length && have.every(k => regionSel.has(k));
-    return `<button class="btn sm ${on?'primary':''}" data-preset="${esc(name)}" ${have.length?'':'disabled'} title="${esc(regs.join(', '))}">${esc(name)}</button>`; }).join(' ') : '';
+    return `<button class="btn sm ${on?'primary':''}" data-preset="${esc(name)}" ${have.length?'':'disabled'} title="${esc(regs.join(', '))}">${esc(name)}</button>`; }).join(' ') + ' <button class="btn sm" onclick="resetRegions()" title="서초·관악 권역만 남기는 기본 설정">↺ 기본값</button>' : '';
   // 지역 (시도별 묶음)
   const groups = {};
   Object.keys(rCount).filter(k=>k!=='__none').forEach(k => { const sd = k.split(' ')[0]; (groups[sd] ||= []).push(k); });
