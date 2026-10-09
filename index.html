@@ -150,12 +150,12 @@
   <div class="card">
     <div class="row" style="justify-content:space-between">
       <h2 style="margin:0">③ 결과 <span id="eResultCount"></span></h2>
-      <div class="row"><select id="eSource"><option value="">출처 전체</option><option value="upload">업로드한 DB만</option><option value="lead">설명회 신청자만</option></select>
+      <div class="row"><input type="text" id="eSearch" placeholder="이름 / 학교 / 연락처 검색" style="width:200px"><select id="eSource"><option value="">출처 전체</option><option value="upload">업로드한 DB만</option><option value="lead">설명회 신청자만</option></select>
       <label class="radio"><input type="checkbox" id="eDedupe" checked> 같은 연락처는 1건만 (형제 중복 발송 방지)</label>
       <button class="btn primary" onclick="downloadExternal()">선택한 DB 엑셀 다운로드</button></div>
     </div>
     <p class="muted" id="eSummary"></p>
-    <p class="muted" style="margin-top:-6px">수신거부로 등록된 번호는 항상 자동으로 빠집니다. 표 왼쪽 [수신거부] 버튼으로 바로 등록할 수도 있습니다.</p>
+    <p class="muted" style="margin-top:-6px">수신거부로 등록된 번호는 항상 자동으로 빠집니다. 표 왼쪽 [수정]으로 학생 정보를 고치거나 삭제할 수 있고, [수신거부]로 바로 등록할 수도 있습니다.</p>
     <div class="tablewrap"><table id="eTable"></table></div>
   </div>
 </section>

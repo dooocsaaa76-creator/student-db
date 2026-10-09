@@ -83,3 +83,7 @@ ul.users{padding-left:18px;margin:0 0 12px;line-height:2}
 #pwMsg{margin-top:12px;color:var(--warn);font-size:13px}
 .tag.optout{background:#fde8e8;color:var(--danger)}
 textarea{border:1px solid var(--line);border-radius:6px;padding:6px 8px;font:inherit;max-width:100%}
+.efgrid{display:grid;grid-template-columns:1fr 1fr;gap:10px 14px}
+@media(max-width:600px){.efgrid{grid-template-columns:1fr}}
+.ef{display:flex;flex-direction:column;gap:3px;font-size:12px;color:var(--muted)}
+.ef input{border:1px solid var(--line);border-radius:6px;padding:7px 9px;font:inherit;font-size:14px;color:var(--text)}

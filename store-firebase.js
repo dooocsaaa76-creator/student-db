@@ -5,6 +5,7 @@
 //   meta/main, meta/external 설정·최근 업로드 정보, 외부생 열 목록
 //   optOut/{숫자만 연락처}   문자 수신거부 번호
 //   leadChunks/*, meta/leads 설명회 신청자 (구글시트 → Apps Script가 자동 저장, 웹에서는 읽기만)
+//   leadEdits/{L_이름_연락처}  설명회 신청자 웹 보정값 (학년·학교·메모)
 //   logs/{auto}              작업 이력
 //   allowedUsers/{email}     접근 허용 계정 (mustChange: 초기 비밀번호 미변경)
 // ==========================================================================
@@ -16,7 +17,7 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-auth.js";
 import {
   initializeFirestore, collection, doc, getDoc, getDocs, setDoc, deleteDoc, writeBatch,
-  deleteField, arrayUnion, query, orderBy, limit,
+  deleteField, arrayUnion, query, orderBy, limit, runTransaction,
 } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
 
 if (!firebaseConfig.apiKey) {
@@ -103,17 +104,19 @@ window.Store = {
   },
   // 외부생 DB는 용량이 커서 외부생 탭을 열 때 따로 불러옴
   async loadExternal() {
-    const [extSnap, chunkSnap, leadSnap, leadMeta] = await Promise.all([
+    const [extSnap, chunkSnap, leadSnap, leadMeta, editSnap] = await Promise.all([
       getDoc(doc(db, "meta", "external")),
       getDocs(query(collection(db, "externalChunks"), orderBy("seq"))),
       getDocs(collection(db, "leadChunks")),
       getDoc(doc(db, "meta", "leads")),
+      getDocs(collection(db, "leadEdits")),
     ]);
     return {
       cols: extSnap.exists() ? (extSnap.data().cols || []) : [],
-      rows: chunkSnap.docs.flatMap(d => d.data().rows || []),
+      rows: chunkSnap.docs.flatMap(d => (d.data().rows || []).map(r => ({ ...r, _chunk: d.id }))),   // _chunk: 수정할 때 쓰는 저장 위치
       leads: leadSnap.docs.flatMap(d => d.data().rows || []),
       leadsMeta: leadMeta.exists() ? leadMeta.data() : null,
+      leadEdits: Object.fromEntries(editSnap.docs.map(d => [d.id, d.data()])),
     };
   },
 
@@ -135,6 +138,22 @@ window.Store = {
     await setDoc(doc(db, "meta", "external"), { cols });
     await writeChunks(rows);
   },
+  // 외부생 한 줄 수정(next) 또는 삭제(next=null). 같은 묶음을 다른 사람이 동시에 고쳐도 서로 지워지지 않도록 트랜잭션 사용
+  async patchExternalRow(chunkId, orig, next) {
+    const strip = ({ _chunk, ...r }) => r;
+    const stable = o => JSON.stringify(Object.keys(o).sort().map(k => [k, o[k]]));
+    const o = strip(orig), same = r => o._key ? r._key === o._key : stable(r) === stable(o);
+    await runTransaction(db, async tx => {
+      const ref = doc(db, "externalChunks", chunkId), snap = await tx.get(ref);
+      const rows = snap.exists() ? (snap.data().rows || []) : [];
+      const i = rows.findIndex(same);
+      if (i < 0) throw new Error("해당 학생을 찾지 못했습니다. 다른 곳에서 바뀌었을 수 있으니 새로고침 후 다시 시도해 주세요.");
+      if (next) rows[i] = strip(next); else rows.splice(i, 1);
+      tx.update(ref, { rows });
+    });
+  },
+  saveLeadEdit(id, data) { return setDoc(doc(db, "leadEdits", id), data); },
+  removeLeadEdit(id) { return deleteDoc(doc(db, "leadEdits", id)); },
   async replaceExternal(cols, rows) {
     await deleteCollection("externalChunks");
     await setDoc(doc(db, "meta", "external"), { cols });
@@ -162,6 +181,9 @@ window.Store = {
       ...students.map(r => b => b.set(doc(db, "students", docId(r.id)), r)),
     ]);
     await this.replaceExternal(d.external?.cols || [], d.external?.rows || []);
+    const oldEdits = await getDocs(collection(db, "leadEdits"));
+    await commitInBatches([...oldEdits.docs.map(x => b => b.delete(x.ref)),
+      ...Object.entries(d.leadEdits || {}).map(([k, v]) => b => b.set(doc(db, "leadEdits", k), v))]);
     const oldOpt = await getDocs(collection(db, "optOut"));
     await commitInBatches([...oldOpt.docs.map(x => b => b.delete(x.ref)),
       ...Object.entries(d.optOut || {}).map(([k, v]) => b => b.set(doc(db, "optOut", k), v))]);

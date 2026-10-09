@@ -6,7 +6,7 @@ const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(
 const ymd = () => today().replace(/-/g,'');
 const ko = (a,b) => String(a||'').localeCompare(String(b||''),'ko');
 
-let S = { active:{}, withdrawn:{}, external:{cols:[], rows:[]}, leads:[], leadsMeta:null, optOut:{}, logs:[], settings:{extPromote:true}, lastBackup:null, lastRoster:null };
+let S = { active:{}, withdrawn:{}, external:{cols:[], rows:[]}, leads:[], leadsMeta:null, leadEdits:{}, optOut:{}, logs:[], settings:{extPromote:true}, lastBackup:null, lastRoster:null };
 let ME = null;   // 로그인한 사용자 이메일
 
 /* ---------- 저장소 연동 ---------- */
@@ -342,16 +342,40 @@ function renderWithdrawn(){
   $('#wCount').textContent = `${list.length}명 표시`;
   $('#wTable').innerHTML = `<thead><tr><th>ID</th><th>이름</th><th>현재 학년</th><th>퇴원 당시</th><th>학교</th><th>클래스</th><th>교사</th><th>학부모 연락처</th><th>학생 연락처</th><th>메모</th><th>퇴원일</th><th></th></tr></thead><tbody>`
     + (list.length ? list.map(r=>{ const cg = curGradeOf(r), auto = r.gLevel!=null && cg !== (r.withdrawGrade||r.grade);
-      return `<tr><td>${esc(r.id)}</td><td><b>${esc(r.name)}</b>${optBadge(r)}</td><td><span class="tag ${auto?'auto':''}" title="${r.gLevel==null?'학년 표기를 인식하지 못해 자동 진급되지 않습니다':''}">${esc(cg)}</span></td><td class="muted">${esc(r.withdrawGrade||r.grade)}</td><td>${esc(r.school)}</td>${clsCell(r)}<td>${esc(tchText(r))}</td>${contactCells(r,'withdrawn')}<td>${esc(r.withdrawnAt||'')}</td><td><button class="btn sm danger" data-del="${esc(r.id)}">삭제</button></td></tr>`; }).join('')
+      return `<tr><td>${esc(r.id)}</td><td><b>${esc(r.name)}</b>${optBadge(r)}</td><td><span class="tag ${auto?'auto':''}" title="${r.gLevel==null?'학년 표기를 인식하지 못해 자동 진급되지 않습니다':''}">${esc(cg)}</span></td><td class="muted">${esc(r.withdrawGrade||r.grade)}</td><td>${esc(r.school)}</td>${clsCell(r)}<td>${esc(tchText(r))}</td>${contactCells(r,'withdrawn')}<td>${esc(r.withdrawnAt||'')}</td><td><button class="btn sm" data-wedit="${esc(r.id)}">수정</button> <button class="btn sm danger" data-del="${esc(r.id)}">삭제</button></td></tr>`; }).join('')
        : `<tr><td colspan="12" class="muted" style="text-align:center;padding:30px">퇴원생이 없습니다. 새 배치생 리스트를 올렸을 때 명단에서 빠진 학생이 이곳으로 이동합니다.</td></tr>`) + '</tbody>';
 }
 $('#wTable').addEventListener('click', async e => {
+  if (e.target.dataset && e.target.dataset.wedit) return openWithdrawnEdit(e.target.dataset.wedit);
   const id = e.target.dataset && e.target.dataset.del; if (!id) return;
   const r = S.withdrawn[id]; if (!r) return;
   if (!confirm(`퇴원생 '${r.name}(${id})'을(를) DB에서 완전히 삭제할까요?\n연락처 정보도 함께 삭제되며 되돌릴 수 없습니다.`)) return;
   await run('삭제 중…', () => Store.deleteStudent(id));
   delete S.withdrawn[id]; log('퇴원생 삭제', '', `${r.name}(${id})`); renderWithdrawn();
 });
+function openWithdrawnEdit(id){
+  const r = S.withdrawn[id]; if (!r) return;
+  const g0 = curGradeOf(r);
+  modal(`<h3>퇴원생 정보 수정</h3>
+    <p class="muted">ID ${esc(id)} · 퇴원일 ${esc(r.withdrawnAt||'')} · 퇴원 당시 ${esc(r.withdrawGrade||'')}</p>
+    <div class="efgrid">
+      <label class="ef"><span>이름</span><input id="wfName" value="${esc(r.name)}"></label>
+      <label class="ef"><span>학교</span><input id="wfSchool" value="${esc(r.school||'')}"></label>
+      <label class="ef"><span>현재 학년</span><input id="wfGrade" value="${esc(g0)}" placeholder="예) 중2, 20세"></label>
+    </div>
+    <p class="muted">현재 학년을 고치면 올해 기준으로 저장되고, 해가 바뀌면 다시 자동으로 올라갑니다. 연락처·메모는 표에서 바로 고치면 됩니다.</p>
+    <div class="row" style="justify-content:flex-end;margin-top:12px"><button class="btn" onclick="closeModal()">취소</button><button class="btn primary" id="wfSave">저장</button></div>`);
+  $('#wfSave').onclick = async () => {
+    const name = $('#wfName').value.trim(), school = $('#wfSchool').value.trim(), gv = $('#wfGrade').value.trim();
+    if (!name) return alert('이름은 비울 수 없습니다.');
+    const g = readGradeInput(gv, g0); if (!g) return;
+    const patch = {name, school, updatedAt: today()};
+    if (!g.same) Object.assign(patch, g.text ? {grade:g.text, gLevel:g.lv, gYear:CUR_YEAR} : {grade:'', gLevel:null, gYear:CUR_YEAR});
+    await run('저장 중…', () => Store.updateStudent(id, patch));
+    Object.assign(r, patch); log('퇴원생 수정', '', `${name}(${id})`); closeModal(); renderWithdrawn();
+  };
+}
+
 // 표 안에서 직접 입력 → 해당 학생 문서의 그 칸만 저장
 document.addEventListener('change', async e => {
   const el = e.target; if (!el.dataset || !el.dataset.f || !el.dataset.k) return;
@@ -408,9 +432,10 @@ const rMode = () => document.querySelector('input[name=rMode]:checked').value;
 // 업로드한 외부생 DB + 구글시트 설명회 신청자(leads) 합치기
 //  · 업로드 DB에 이미 있는 학생(이름+연락처)은 그 행에 '설명회'·'신청일'만 붙임
 //  · 여러 설명회에 신청한 사람은 1건으로 합치고 설명회 이름을 모아서 표시 (가장 최근 신청 기준)
-let EXT_ALL = [];
+let EXT_ALL = [], extView = [];
 const LEAD_COLS = ['이름','학교','학년','학부모 연락처','상태','신청일','설명회'];
-function setExternal(d){ S.external = {cols:d.cols||[], rows:d.rows||[]}; S.leads = d.leads||[]; S.leadsMeta = d.leadsMeta||null; rebuildExt(); }
+function setExternal(d){ S.external = {cols:d.cols||[], rows:d.rows||[]}; S.leads = d.leads||[]; S.leadsMeta = d.leadsMeta||null; S.leadEdits = d.leadEdits||{}; rebuildExt(); }
+const leadId = r => 'L_' + norm(r['이름']) + '_' + (r._ph || rowPhone(r));
 function rebuildExt(){
   const merged = {};
   for (const r of S.leads || []) {
@@ -424,13 +449,24 @@ function rebuildExt(){
     const k = norm(r['이름']) + '|' + rowPhone(r), l = merged[k];
     if (!l) return r;
     delete merged[k];
-    return {...r, '설명회': l['설명회'], '신청일': l['신청일']};
+    return {...r, '설명회': l['설명회'], '신청일': l['신청일'], _base: r};
   });
-  EXT_ALL = [...rows, ...Object.values(merged)];
+  // 설명회 신청자 웹 보정값 (구글시트 원본은 그대로, 동기화돼도 유지)
+  const leads = Object.values(merged).map(l => {
+    const e = (S.leadEdits || {})[leadId(l)];
+    if (!e) return l;
+    const x = {...l, _edited:true};
+    if (e.grade) { x['학년'] = e.grade + ' (웹 수정)'; x._lv = e._lv; x._yr = e._yr; }
+    if (e.school) x['학교'] = e.school;
+    if (e.memo) x['메모'] = e.memo;
+    return x;
+  });
+  EXT_ALL = [...rows, ...leads];
 }
 function extCols(){
   const cols = S.external.cols.length ? [...S.external.cols] : (S.leads.length ? [...LEAD_COLS] : []);
   if (S.leads.length) ['신청일','설명회'].forEach(c => { if (!cols.includes(c)) cols.push(c); });
+  if (!cols.includes('메모') && EXT_ALL.some(r => r['메모'])) cols.push('메모');
   return cols;
 }
 
@@ -442,6 +478,13 @@ async function ensureExternal(){
   try { setExternal(await Store.loadExternal()); extLoaded = true; renderExternal(); }
   catch(e){ console.error(e); alert('외부생 DB를 불러오지 못했습니다.\n' + e.message); }
   finally { busy(''); }
+}
+
+// 시도+시군구 → '서울 서초구'. 시도/구 칸이 비면 주소에서
+function regionOf(r){
+  let g = (r['시도'] || r['시군구']) ? parseRegion(`${r['시도']||''} ${r['시군구']||''}`) : '';
+  if (!g || !g.includes(' ')) g = parseRegion(r['주소']) || g;
+  return g;
 }
 
 async function externalUpload(fname, sheets){
@@ -472,8 +515,7 @@ async function externalUpload(fname, sheets){
     if (r._key && seen.has(r._key)) { dup++; continue; }
     if (r._key) seen.add(r._key);
     r._lv = parseGrade(r['학년']); r._yr = baseYear;
-    r._region = (r['시도'] || r['시군구']) ? parseRegion(`${r['시도']||''} ${r['시군구']||''}`) : '';
-    if (!r._region || !r._region.includes(' ')) r._region = parseRegion(r['주소']) || r._region;   // 시도/구 칸이 비면 주소에서
+    r._region = regionOf(r);
     r._src = fname;
     if (r._lv == null) unk++;
     if (!r._region) noReg++;
@@ -481,8 +523,7 @@ async function externalUpload(fname, sheets){
   }
   await run(`외부생 DB 저장 중… (${added.length.toLocaleString()}건)`, async () => {
     if (replace) await Store.replaceExternal(cols, added); else await Store.appendExternal(cols, added);
-    S.external = { cols, rows: replace ? added : [...S.external.rows, ...added] };
-    rebuildExt();
+    setExternal(await Store.loadExternal());
     log('외부생 업로드', fname, `${added.length}건 추가${dup?` · 중복 ${dup}건 제외`:''}${unk?` · 학년 미분류 ${unk}건`:''} (기준 ${baseYear}년${replace?', 전체 교체':''})`);
   });
   renderExternal(); renderBackup();
@@ -502,8 +543,9 @@ async function clearExternal(){
 function filteredExternal(){
   const mode = rMode(), dedupe = $('#eDedupe').checked;
   let optOut = 0, dupPhone = 0; const phones = new Set();
-  const src = $("#eSource").value;
+  const src = $("#eSource").value, q = $('#eSearch').value.trim(), qd = /\d{4}/.test(q) ? q.replace(/\D/g,'') : '';
   const list = EXT_ALL.filter(r => {
+    if (q && !(qd ? rowPhone(r).includes(qd) : ['이름','학교','주소','메모','설명회'].some(c => String(r[c]||'').includes(q)))) return false;
     if (src==="upload" && r._lead) return false;
     if (src==="lead" && !r["설명회"]) return false;
     if (gradeOff.has(extGradeKey(r))) return false;
@@ -560,9 +602,10 @@ function renderExternalResult(){
     + (list.optOut ? ` · 수신거부 ${list.optOut}건 제외` : '') + (list.dupPhone ? ` · 같은 연락처 ${list.dupPhone}건 제외` : '')
     + (list.length>200?' · 미리보기는 200건까지 표시':'');
   const cols = extCols();
+  extView = list.slice(0,200);
   $('#eTable').innerHTML = cols.length ? `<thead><tr><th></th><th>현재 학년</th><th>지역(인식)</th>${cols.map(c=>`<th>${esc(c)}</th>`).join('')}</tr></thead><tbody>`
-    + list.slice(0,200).map(r=>{ const ph = rowPhone(r);
-        return `<tr><td>${ph?`<button class="btn sm" data-optout="${esc(ph)}" data-oname="${esc(r['이름']||'')}">수신거부</button>`:''}</td><td><span class="tag">${esc(extGradeKey(r))}</span></td><td>${esc(r._region)}</td>${cols.map(c=>`<td>${esc(r[c])}</td>`).join('')}</tr>`; }).join('') + '</tbody>' : '';
+    + extView.map((r,i)=>{ const ph = rowPhone(r);
+        return `<tr><td><button class="btn sm" data-edit="${i}">수정</button> ${ph?`<button class="btn sm" data-optout="${esc(ph)}" data-oname="${esc(r['이름']||'')}">수신거부</button>`:''}${r._edited?' <span class="tag auto">수정됨</span>':''}</td><td><span class="tag">${esc(extGradeKey(r))}</span></td><td>${esc(r._region)}</td>${cols.map(c=>`<td>${esc(r[c])}</td>`).join('')}</tr>`; }).join('') + '</tbody>' : '';
 }
 document.addEventListener('change', e => {
   const el = e.target;
@@ -572,6 +615,8 @@ document.addEventListener('change', e => {
   else if (el.name === 'rMode') renderExternal();
   else if (el.id === 'eDedupe' || el.id === 'eSource') renderExternalResult();
 });
+let searchTimer;
+$('#eSearch').addEventListener('input', e => { e.stopPropagation(); clearTimeout(searchTimer); searchTimer = setTimeout(renderExternalResult, 250); });
 $('#ePresets').addEventListener('click', e => {
   const name = e.target.dataset && e.target.dataset.preset; if (!name) return;
   const present = new Set(EXT_ALL.map(r=>r._region));
@@ -582,9 +627,79 @@ $('#ePresets').addEventListener('click', e => {
   renderExternal();
 });
 $('#eTable').addEventListener('click', e => {
+  if (e.target.dataset && e.target.dataset.edit != null) return openExtEdit(extView[+e.target.dataset.edit]);
   const ph = e.target.dataset && e.target.dataset.optout; if (!ph) return;
   addOptOut([{phone:ph, name:e.target.dataset.oname}], '외부생 DB에서 등록');
 });
+/* ---------- 외부생 수정 ---------- */
+const field = (k, label, v, ph='') => `<label class="ef"><span>${esc(label)}</span><input data-ef="${esc(k)}" value="${esc(v ?? '')}" placeholder="${esc(ph)}"></label>`;
+const gradeNow = r => { const k = extGradeKey(r); return k === '미분류' ? '' : k; };
+function readGradeInput(v, before){
+  if (v === before) return {same:true};
+  if (!v) return {lv:null};
+  const lv = parseGrade(v);
+  if (lv == null) { alert('학년을 인식할 수 없습니다. 예) 초3, 중1, 고2, 예비중1, 20세'); return null; }
+  return {lv, text:v};
+}
+function openExtEdit(r){
+  if (!r) return;
+  const efv = () => Object.fromEntries([...document.querySelectorAll('[data-ef]')].map(i => [i.dataset.ef, i.value.trim()]));
+  if (r._lead) {      // 설명회 신청자: 웹 보정값만
+    const id = leadId(r), e = S.leadEdits[id] || {}, g0 = gradeNow(r);
+    modal(`<h3>설명회 신청자 수정</h3>
+      <p class="muted">${esc(r['이름'])} · ${esc(r['학부모 연락처'])} · ${esc(r['설명회'])}<br>구글시트 원본은 바뀌지 않고 <b>이 웹페이지에서만</b> 적용됩니다. 동기화가 돌아도 유지됩니다.</p>
+      <div class="efgrid">${field('grade','현재 학년', g0, '예) 중2')}${field('school','학교', r['학교'])}${field('memo','메모', r['메모'])}</div>
+      <div class="row" style="justify-content:space-between;margin-top:16px">
+        <div>${S.leadEdits[id] ? '<button class="btn danger" id="efReset">수정 내용 지우기 (원래대로)</button>' : ''}</div>
+        <div class="row"><button class="btn" onclick="closeModal()">취소</button><button class="btn primary" id="efSave">저장</button></div>
+      </div>`);
+    $('#efSave').onclick = async () => {
+      const v = efv(), g = readGradeInput(v.grade, g0); if (!g) return;
+      const data = {...e, school: v.school, memo: v.memo, by: ME||'', at: today()};
+      if (!g.same) { if (g.text) Object.assign(data, {grade:g.text, _lv:g.lv, _yr:CUR_YEAR}); else { delete data.grade; delete data._lv; delete data._yr; } }
+      await run('저장 중…', () => Store.saveLeadEdit(id, data));
+      S.leadEdits[id] = data; log('설명회 신청자 수정', '', r['이름']); closeModal(); rebuildExt(); renderExternal();
+    };
+    if ($('#efReset')) $('#efReset').onclick = async () => {
+      if (!confirm('웹에서 수정한 내용을 지우고 구글시트 원래 값으로 되돌릴까요?')) return;
+      await run('되돌리는 중…', () => Store.removeLeadEdit(id));
+      delete S.leadEdits[id]; closeModal(); rebuildExt(); renderExternal();
+    };
+    return;
+  }
+  // 업로드한 외부생: 모든 열 수정 + 삭제
+  const base = r._base || r, g0 = gradeNow(base);
+  if (!base._chunk) return alert('방금 업로드한 데이터입니다. 새로고침 후 다시 시도해 주세요.');
+  const std = ['이름','학교','학부모 연락처','상태','시도','시군구','동','주소','메모'];
+  const extra = S.external.cols.filter(c => !std.includes(c) && c !== '학년');
+  modal(`<h3>외부생 정보 수정</h3>
+    <p class="muted">${esc(base['이름'])}${base['ID'] ? ' · ID ' + esc(base['ID']) : ''}${r['설명회'] ? ' · 설명회: ' + esc(r['설명회']) : ''}</p>
+    <div class="efgrid">${field('이름','이름', base['이름'])}${field('__grade','현재 학년', g0, '예) 중2')}${std.slice(1).map(c => field(c, c, base[c])).join('')}${extra.map(c => field(c, c, base[c])).join('')}</div>
+    <div class="row" style="justify-content:space-between;margin-top:16px">
+      <button class="btn danger" id="efDel">이 학생 DB에서 삭제</button>
+      <div class="row"><button class="btn" onclick="closeModal()">취소</button><button class="btn primary" id="efSave">저장</button></div>
+    </div>`);
+  $('#efSave').onclick = async () => {
+    const v = efv(), g = readGradeInput(v.__grade, g0); if (!g) return;
+    if (!v['이름']) return alert('이름은 비울 수 없습니다.');
+    const next = {...base}; delete next._chunk;
+    Object.entries(v).forEach(([k, x]) => { if (k === '__grade') return; if (x) next[k] = x; else delete next[k]; });
+    if (next['학부모 연락처']) next['학부모 연락처'] = fmtPhone(next['학부모 연락처']);
+    next._ph = digits(next['학부모 연락처']);
+    if (!g.same) { if (g.text) { next['학년'] = g.text; next._lv = g.lv; next._yr = CUR_YEAR; } else { delete next['학년']; next._lv = null; } }
+    next._region = regionOf(next);
+    next._edited = today();
+    await run('저장 중…', () => Store.patchExternalRow(base._chunk, base, next));
+    const i = S.external.rows.indexOf(base); S.external.rows[i] = {...next, _chunk: base._chunk};
+    log('외부생 수정', '', next['이름']); closeModal(); rebuildExt(); renderExternal();
+  };
+  $('#efDel').onclick = async () => {
+    if (!confirm(`${base['이름']} 학생을 외부생 DB에서 삭제할까요? 되돌릴 수 없습니다.`)) return;
+    await run('삭제 중…', () => Store.patchExternalRow(base._chunk, base, null));
+    S.external.rows.splice(S.external.rows.indexOf(base), 1);
+    log('외부생 삭제', '', base['이름']); closeModal(); rebuildExt(); renderExternal();
+  };
+}
 function gradeAll(on){ document.querySelectorAll('[data-grade]').forEach(c => on ? gradeOff.delete(c.dataset.grade) : gradeOff.add(c.dataset.grade)); renderExternal(); }
 function gradeBand(p){ document.querySelectorAll('[data-grade]').forEach(c => c.dataset.grade.startsWith(p) ? gradeOff.delete(c.dataset.grade) : gradeOff.add(c.dataset.grade)); renderExternal(); }
 function downloadExternal(){
@@ -663,8 +778,9 @@ function exportOptOut(){
 async function backup(){
   await ensureExternal();
   S.lastBackup = new Date().toLocaleString('ko-KR');
-  const {active, withdrawn, external, optOut, settings, lastRoster, lastBackup} = S;
-  const blob = new Blob([JSON.stringify({active, withdrawn, external, optOut, settings, lastRoster, lastBackup})], {type:'application/json'});
+  const {active, withdrawn, optOut, leadEdits, settings, lastRoster, lastBackup} = S;
+  const external = {cols: S.external.cols, rows: S.external.rows.map(({_chunk, ...r}) => r)};
+  const blob = new Blob([JSON.stringify({active, withdrawn, external, optOut, leadEdits, settings, lastRoster, lastBackup})], {type:'application/json'});
   const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `학생DB_백업_${ymd()}.json`; a.click();
   setTimeout(()=>URL.revokeObjectURL(a.href), 2000);
   Store.saveMeta({lastBackup:S.lastBackup}).catch(console.error);
