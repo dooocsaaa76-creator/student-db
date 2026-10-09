@@ -426,12 +426,16 @@ const rowPhone = r => r._ph || digits(PHONE_COLS.map(c=>r[c]).find(Boolean));
 
 const extLevel = r => nowLevel(r._lv, r._yr, S.settings.extPromote);
 const extGradeKey = r => { const lv = extLevel(r); return lv==null ? '미분류' : gradeLabel(lv); };
-// 지역 초기 설정: '선택한 지역 제외' + 대치·목동·평촌·마포 권역과 안산시 제외 → 서초·관악 권역과 지역 미입력만 남음
+// 지역 초기 설정: '선택한 지역 제외' 모드에서 아래 지역을 뺀 나머지를 모두 제외(체크)
+//  → 서초·관악 권역과 지역 미입력만 남음. 새로 들어온 지역(강북구, 성남시 등)도 자동으로 제외됨
 const DEFAULT_REGION_MODE = 'exclude';
-const DEFAULT_REGIONS = [...['대치','목동','평촌','마포'].flatMap(k => REGION_PRESETS[k]), '경기 안산시'];
-let gradeOff = new Set(), regionSel = new Set(DEFAULT_REGIONS);
+const KEEP_REGIONS = ['서울 서초구','서울 동작구','서울 용산구','서울 관악구','경기 과천시','__none'];
+let gradeOff = new Set(), regionSel = new Set();
+let regionIsDefault = true;   // 사용자가 지역 선택을 바꾸기 전까지는 데이터가 바뀔 때마다 기본값을 다시 적용
+const defaultRegionSel = () => new Set(EXT_ALL.map(r => r._region || '__none').filter(k => !KEEP_REGIONS.includes(k)));
 function resetRegions(){
-  regionSel = new Set(DEFAULT_REGIONS);
+  regionIsDefault = true;
+  regionSel = defaultRegionSel();
   document.querySelector(`input[name=rMode][value=${DEFAULT_REGION_MODE}]`).checked = true;
   renderExternal();
 }
@@ -470,6 +474,7 @@ function rebuildExt(){
     return x;
   });
   EXT_ALL = [...rows, ...leads];
+  if (regionIsDefault) regionSel = defaultRegionSel();
 }
 function extCols(){
   const cols = S.external.cols.length ? [...S.external.cols] : (S.leads.length ? [...LEAD_COLS] : []);
@@ -618,9 +623,9 @@ function renderExternalResult(){
 document.addEventListener('change', e => {
   const el = e.target;
   if (el.dataset.grade != null) { el.checked ? gradeOff.delete(el.dataset.grade) : gradeOff.add(el.dataset.grade); el.parentElement.classList.toggle('on', el.checked); renderExternalResult(); }
-  else if (el.dataset.region != null) { el.checked ? regionSel.add(el.dataset.region) : regionSel.delete(el.dataset.region); renderExternal(); }
-  else if (el.dataset.sido != null) { document.querySelectorAll('[data-region]').forEach(c => { if (c.dataset.region===el.dataset.sido || c.dataset.region.startsWith(el.dataset.sido+' ')) el.checked ? regionSel.add(c.dataset.region) : regionSel.delete(c.dataset.region); }); renderExternal(); }
-  else if (el.name === 'rMode') renderExternal();
+  else if (el.dataset.region != null) { regionIsDefault = false; el.checked ? regionSel.add(el.dataset.region) : regionSel.delete(el.dataset.region); renderExternal(); }
+  else if (el.dataset.sido != null) { regionIsDefault = false; document.querySelectorAll('[data-region]').forEach(c => { if (c.dataset.region===el.dataset.sido || c.dataset.region.startsWith(el.dataset.sido+' ')) el.checked ? regionSel.add(c.dataset.region) : regionSel.delete(c.dataset.region); }); renderExternal(); }
+  else if (el.name === 'rMode') { regionIsDefault = false; renderExternal(); }
   else if (el.id === 'eDedupe' || el.id === 'eSource') renderExternalResult();
 });
 let searchTimer;
@@ -630,6 +635,7 @@ $('#ePresets').addEventListener('click', e => {
   const present = new Set(EXT_ALL.map(r=>r._region));
   const have = REGION_PRESETS[name].filter(k => present.has(k));
   const on = have.every(k => regionSel.has(k));
+  regionIsDefault = false;
   have.forEach(k => on ? regionSel.delete(k) : regionSel.add(k));
   if (!on && rMode()==='all') document.querySelector('input[name=rMode][value=include]').checked = true;
   renderExternal();
