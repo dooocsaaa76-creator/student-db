@@ -6,7 +6,7 @@ const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(
 const ymd = () => today().replace(/-/g,'');
 const ko = (a,b) => String(a||'').localeCompare(String(b||''),'ko');
 
-let S = { active:{}, withdrawn:{}, external:{cols:[], rows:[]}, optOut:{}, logs:[], settings:{extPromote:true}, lastBackup:null, lastRoster:null };
+let S = { active:{}, withdrawn:{}, external:{cols:[], rows:[]}, leads:[], leadsMeta:null, optOut:{}, logs:[], settings:{extPromote:true}, lastBackup:null, lastRoster:null };
 let ME = null;   // 로그인한 사용자 이메일
 
 /* ---------- 저장소 연동 ---------- */
@@ -29,7 +29,7 @@ async function loadAll(){
     const d = await Store.loadAll();
     setStudents(d.students);
     S.logs = d.logs; S.optOut = d.optOut || {};
-    if (extLoaded) S.external = await Store.loadExternal();
+    if (extLoaded) setExternal(await Store.loadExternal());
     S.settings = Object.assign({extPromote:true}, d.meta.settings);
     S.lastRoster = d.meta.lastRoster || null; S.lastBackup = d.meta.lastBackup || null;
     renderAll(); setStatus('최신 데이터 ' + new Date().toLocaleTimeString('ko-KR'));
@@ -405,12 +405,41 @@ const extGradeKey = r => { const lv = extLevel(r); return lv==null ? '미분류'
 let gradeOff = new Set(), regionSel = new Set();
 const rMode = () => document.querySelector('input[name=rMode]:checked').value;
 
+// 업로드한 외부생 DB + 구글시트 설명회 신청자(leads) 합치기
+//  · 업로드 DB에 이미 있는 학생(이름+연락처)은 그 행에 '설명회'·'신청일'만 붙임
+//  · 여러 설명회에 신청한 사람은 1건으로 합치고 설명회 이름을 모아서 표시 (가장 최근 신청 기준)
+let EXT_ALL = [];
+const LEAD_COLS = ['이름','학교','학년','학부모 연락처','상태','신청일','설명회'];
+function setExternal(d){ S.external = {cols:d.cols||[], rows:d.rows||[]}; S.leads = d.leads||[]; S.leadsMeta = d.leadsMeta||null; rebuildExt(); }
+function rebuildExt(){
+  const merged = {};
+  for (const r of S.leads || []) {
+    const k = norm(r['이름']) + '|' + r._ph, m = merged[k];
+    if (!m) { merged[k] = {...r, _lead:true}; continue; }
+    const latest = (r['신청일']||'') > (m['신청일']||'') ? {...r, _lead:true} : m;
+    latest['설명회'] = uniq([...String(m['설명회']||'').split(', '), r['설명회']]).join(', ');
+    merged[k] = latest;
+  }
+  const rows = S.external.rows.map(r => {
+    const k = norm(r['이름']) + '|' + rowPhone(r), l = merged[k];
+    if (!l) return r;
+    delete merged[k];
+    return {...r, '설명회': l['설명회'], '신청일': l['신청일']};
+  });
+  EXT_ALL = [...rows, ...Object.values(merged)];
+}
+function extCols(){
+  const cols = S.external.cols.length ? [...S.external.cols] : (S.leads.length ? [...LEAD_COLS] : []);
+  if (S.leads.length) ['신청일','설명회'].forEach(c => { if (!cols.includes(c)) cols.push(c); });
+  return cols;
+}
+
 // 외부생 DB는 용량이 커서 외부생 탭을 처음 열 때 불러옴
 let extLoaded = false;
 async function ensureExternal(){
   if (extLoaded) return;
   busy('외부생 DB 불러오는 중…');
-  try { S.external = await Store.loadExternal(); extLoaded = true; renderExternal(); }
+  try { setExternal(await Store.loadExternal()); extLoaded = true; renderExternal(); }
   catch(e){ console.error(e); alert('외부생 DB를 불러오지 못했습니다.\n' + e.message); }
   finally { busy(''); }
 }
@@ -453,6 +482,7 @@ async function externalUpload(fname, sheets){
   await run(`외부생 DB 저장 중… (${added.length.toLocaleString()}건)`, async () => {
     if (replace) await Store.replaceExternal(cols, added); else await Store.appendExternal(cols, added);
     S.external = { cols, rows: replace ? added : [...S.external.rows, ...added] };
+    rebuildExt();
     log('외부생 업로드', fname, `${added.length}건 추가${dup?` · 중복 ${dup}건 제외`:''}${unk?` · 학년 미분류 ${unk}건`:''} (기준 ${baseYear}년${replace?', 전체 교체':''})`);
   });
   renderExternal(); renderBackup();
@@ -466,13 +496,16 @@ async function clearExternal(){
   if (!S.external.rows.length) return;
   if (!confirm(`외부생 DB ${S.external.rows.length.toLocaleString()}건을 모두 삭제할까요? 되돌릴 수 없습니다.`)) return;
   await run('삭제 중…', () => Store.replaceExternal([], []));
-  S.external = {cols:[], rows:[]}; log('외부생 DB 비우기','',''); renderExternal(); renderBackup();
+  S.external = {cols:[], rows:[]}; rebuildExt(); log('외부생 DB 비우기','',''); renderExternal(); renderBackup();
 }
 // 학년·지역 조건 → 수신거부 제외 → (옵션) 같은 연락처 1건만
 function filteredExternal(){
   const mode = rMode(), dedupe = $('#eDedupe').checked;
   let optOut = 0, dupPhone = 0; const phones = new Set();
-  const list = S.external.rows.filter(r => {
+  const src = $("#eSource").value;
+  const list = EXT_ALL.filter(r => {
+    if (src==="upload" && r._lead) return false;
+    if (src==="lead" && !r["설명회"]) return false;
     if (gradeOff.has(extGradeKey(r))) return false;
     const rk = r._region || '__none';
     if (mode==='include' && !regionSel.has(rk)) return false;
@@ -486,11 +519,11 @@ function filteredExternal(){
   return list;
 }
 function renderExternal(){
-  const rows = S.external.rows;
+  const rows = EXT_ALL;
   const gCount = {}; rows.forEach(r => { const k = extGradeKey(r); gCount[k] = (gCount[k]||0)+1; });
   const rCount = {}; rows.forEach(r => { const k = r._region || '__none'; rCount[k] = (rCount[k]||0)+1; });
   const withRegion = rows.length - (rCount.__none||0);
-  $('#eStats').innerHTML = !extLoaded ? '' : `<div class="stat"><b>${rows.length.toLocaleString()}</b>건 외부생 DB</div><div class="stat"><b>${withRegion.toLocaleString()}</b>건 지역 입력됨</div>${gCount['미분류']?`<div class="stat warn"><b>${gCount['미분류']}</b>건 학년 미분류</div>`:''}<div class="stat"><b>${Object.keys(S.optOut).length}</b>건 수신거부 번호 (자동 제외)</div>`;
+  $('#eStats').innerHTML = !extLoaded ? '' : `<div class="stat"><b>${rows.length.toLocaleString()}</b>건 외부생 DB</div><div class="stat"><b>${withRegion.toLocaleString()}</b>건 지역 입력됨</div>${gCount['미분류']?`<div class="stat warn"><b>${gCount['미분류']}</b>건 학년 미분류</div>`:''}<div class="stat"><b>${S.leads.length.toLocaleString()}</b>건 설명회 신청 <span class="muted">(구글시트 자동 연동${S.leadsMeta?.lastSync ? ' · ' + new Date(S.leadsMeta.lastSync).toLocaleString('ko-KR') : ' · 아직 연동 전'})</span></div><div class="stat"><b>${Object.keys(S.optOut).length}</b>건 수신거부 번호 (자동 제외)</div>`;
   // 학년
   const gKeys = Object.keys(gCount).sort((a,b)=>(a==='미분류')-(b==='미분류') || (parseGrade(a)??0)-(parseGrade(b)??0));
   $('#eGrades').innerHTML = gKeys.length ? gKeys.map(k=>`<label class="chip ${gradeOff.has(k)?'':'on'}"><input type="checkbox" data-grade="${esc(k)}" ${gradeOff.has(k)?'':'checked'}>${esc(k)} <small>${gCount[k].toLocaleString()}</small></label>`).join('') : '<span class="muted">데이터가 없습니다.</span>';
@@ -526,7 +559,7 @@ function renderExternalResult(){
     + (mode==='all' ? '전체' : mode==='include' ? `${rLbl.join(', ')||'선택 없음'} 만` : `${rLbl.join(', ')||'없음'} 제외`)
     + (list.optOut ? ` · 수신거부 ${list.optOut}건 제외` : '') + (list.dupPhone ? ` · 같은 연락처 ${list.dupPhone}건 제외` : '')
     + (list.length>200?' · 미리보기는 200건까지 표시':'');
-  const cols = S.external.cols;
+  const cols = extCols();
   $('#eTable').innerHTML = cols.length ? `<thead><tr><th></th><th>현재 학년</th><th>지역(인식)</th>${cols.map(c=>`<th>${esc(c)}</th>`).join('')}</tr></thead><tbody>`
     + list.slice(0,200).map(r=>{ const ph = rowPhone(r);
         return `<tr><td>${ph?`<button class="btn sm" data-optout="${esc(ph)}" data-oname="${esc(r['이름']||'')}">수신거부</button>`:''}</td><td><span class="tag">${esc(extGradeKey(r))}</span></td><td>${esc(r._region)}</td>${cols.map(c=>`<td>${esc(r[c])}</td>`).join('')}</tr>`; }).join('') + '</tbody>' : '';
@@ -537,11 +570,11 @@ document.addEventListener('change', e => {
   else if (el.dataset.region != null) { el.checked ? regionSel.add(el.dataset.region) : regionSel.delete(el.dataset.region); renderExternal(); }
   else if (el.dataset.sido != null) { document.querySelectorAll('[data-region]').forEach(c => { if (c.dataset.region===el.dataset.sido || c.dataset.region.startsWith(el.dataset.sido+' ')) el.checked ? regionSel.add(c.dataset.region) : regionSel.delete(c.dataset.region); }); renderExternal(); }
   else if (el.name === 'rMode') renderExternal();
-  else if (el.id === 'eDedupe') renderExternalResult();
+  else if (el.id === 'eDedupe' || el.id === 'eSource') renderExternalResult();
 });
 $('#ePresets').addEventListener('click', e => {
   const name = e.target.dataset && e.target.dataset.preset; if (!name) return;
-  const present = new Set(S.external.rows.map(r=>r._region));
+  const present = new Set(EXT_ALL.map(r=>r._region));
   const have = REGION_PRESETS[name].filter(k => present.has(k));
   const on = have.every(k => regionSel.has(k));
   have.forEach(k => on ? regionSel.delete(k) : regionSel.add(k));
@@ -557,7 +590,7 @@ function gradeBand(p){ document.querySelectorAll('[data-grade]').forEach(c => c.
 function downloadExternal(){
   const list = filteredExternal();
   if (!list.length) return alert('조건에 맞는 DB가 없습니다.');
-  const cols = S.external.cols;
+  const cols = extCols();
   const aoa = [['현재 학년', ...cols]];
   list.forEach(r => aoa.push([extGradeKey(r), ...cols.map(c=>r[c] ?? '')]));
   const boxes = [...document.querySelectorAll('[data-grade]')], gSel = boxes.filter(c=>c.checked).map(c=>c.dataset.grade);
@@ -596,7 +629,7 @@ function optOutMatches(d){
   const hits = [];
   Object.values(S.active).forEach(r => { if (digits(r.parentPhone)===d || digits(r.studentPhone)===d) hits.push(`재원 ${r.name}`); });
   Object.values(S.withdrawn).forEach(r => { if (digits(r.parentPhone)===d || digits(r.studentPhone)===d) hits.push(`퇴원 ${r.name}`); });
-  if (extLoaded) S.external.rows.forEach(r => { if (rowPhone(r)===d) hits.push(`외부 ${r['이름']||''}`); });
+  if (extLoaded) EXT_ALL.forEach(r => { if (rowPhone(r)===d) hits.push(`외부 ${r['이름']||''}`); });
   return hits;
 }
 function renderOptOut(){

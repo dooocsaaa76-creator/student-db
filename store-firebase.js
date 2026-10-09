@@ -4,6 +4,7 @@
 //   externalChunks/{id}      외부생 DB (행 묶음 단위로 저장)
 //   meta/main, meta/external 설정·최근 업로드 정보, 외부생 열 목록
 //   optOut/{숫자만 연락처}   문자 수신거부 번호
+//   leadChunks/*, meta/leads 설명회 신청자 (구글시트 → Apps Script가 자동 저장, 웹에서는 읽기만)
 //   logs/{auto}              작업 이력
 //   allowedUsers/{email}     접근 허용 계정 (mustChange: 초기 비밀번호 미변경)
 // ==========================================================================
@@ -102,11 +103,18 @@ window.Store = {
   },
   // 외부생 DB는 용량이 커서 외부생 탭을 열 때 따로 불러옴
   async loadExternal() {
-    const [extSnap, chunkSnap] = await Promise.all([
+    const [extSnap, chunkSnap, leadSnap, leadMeta] = await Promise.all([
       getDoc(doc(db, "meta", "external")),
       getDocs(query(collection(db, "externalChunks"), orderBy("seq"))),
+      getDocs(collection(db, "leadChunks")),
+      getDoc(doc(db, "meta", "leads")),
     ]);
-    return { cols: extSnap.exists() ? (extSnap.data().cols || []) : [], rows: chunkSnap.docs.flatMap(d => d.data().rows || []) };
+    return {
+      cols: extSnap.exists() ? (extSnap.data().cols || []) : [],
+      rows: chunkSnap.docs.flatMap(d => d.data().rows || []),
+      leads: leadSnap.docs.flatMap(d => d.data().rows || []),
+      leadsMeta: leadMeta.exists() ? leadMeta.data() : null,
+    };
   },
 
   /* ---------- 학생 ---------- */
