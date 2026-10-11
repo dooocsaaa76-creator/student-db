@@ -777,9 +777,10 @@ try { hiddenCols = new Set(JSON.parse(localStorage.getItem('extHiddenCols') || '
 const saveHidden = () => { try { localStorage.setItem('extHiddenCols', JSON.stringify([...hiddenCols])); } catch(e) {} };
 const viewCols = () => allViewCols().filter(c => !hiddenCols.has(c));
 const cellVal = (r, c) => c === VCOL_GRADE ? extGradeKey(r) : c === VCOL_REGION ? (r._region ? r._region + (r._rg ? ' (학교 추정)' : '') : '') : (r[c] ?? '');
-// 정렬: 처음엔 현재 학년 → 이름. 열 제목 클릭으로 바꿈 (같은 열 다시 클릭하면 반대 방향)
-let extSort = {col: VCOL_GRADE, dir: 1};
+// 정렬: 처음엔 업로드한 순서 그대로. 열 제목 클릭 → 오름차순 → 내림차순 → 원래 순서
+let extSort = null;
 function sortExt(list){
+  if (!extSort) return list;
   const {col, dir} = extSort;
   const key = col === VCOL_GRADE ? (r => extLevel(r) ?? 999) : col === VCOL_REGION ? (r => r._region || '\uffff') : (r => String(r[col] ?? '') || '\uffff');
   const num = col === VCOL_GRADE || (col === 'ID' && list.every(r => !r['ID'] || /^\d+$/.test(r['ID'])));
@@ -822,7 +823,7 @@ function renderExternalResult(){
     + (list.length>200?' · 미리보기는 200건까지 표시':'');
   const cols = viewCols();
   extView = sortExt(list).slice(0,200);
-  const arrow = c => extSort.col === c ? (extSort.dir > 0 ? ' ▲' : ' ▼') : '';
+  const arrow = c => extSort && extSort.col === c ? (extSort.dir > 0 ? ' ▲' : ' ▼') : '';
   const td = (r, c) => c === VCOL_GRADE ? `<td><span class="tag">${esc(extGradeKey(r))}</span></td>`
     : c === VCOL_REGION ? `<td>${esc(r._region)}${r._rg ? ' <span class="muted" title="학교 이름으로 추정한 지역">(학교)</span>' : ''}</td>`
     : `<td>${esc(r[c])}</td>`;
@@ -852,7 +853,7 @@ $('#ePresets').addEventListener('click', e => {
 });
 $('#eTable').addEventListener('click', e => {
   const th = e.target.closest('th[data-sort]');
-  if (th) { const c = th.dataset.sort; extSort = extSort.col === c ? {col:c, dir:-extSort.dir} : {col:c, dir:1}; return renderExternalResult(); }
+  if (th) { const c = th.dataset.sort; extSort = !extSort || extSort.col !== c ? {col:c, dir:1} : extSort.dir > 0 ? {col:c, dir:-1} : null; return renderExternalResult(); }
   if (e.target.dataset && e.target.dataset.edit != null) return openExtEdit(extView[+e.target.dataset.edit]);
   const ph = e.target.dataset && e.target.dataset.optout; if (!ph) return;
   addOptOut([{phone:ph, name:e.target.dataset.oname}], '외부생 DB에서 등록');
