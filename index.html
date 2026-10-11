@@ -116,6 +116,7 @@
       <label class="radio"><input type="radio" name="eMode" value="append" checked> 기존 DB에 추가 (중복 제외)</label>
       <label class="radio"><input type="radio" name="eMode" value="replace"> 기존 DB 전체 교체</label>
       <button class="btn primary" onclick="pick('external')">외부생 엑셀 업로드</button>
+      <button class="btn" onclick="openExtAdd()">+ 직접 입력</button>
       <button class="btn danger" onclick="clearExternal()">외부생 DB 비우기</button>
     </div>
     <p class="muted" style="margin:8px 0 0">· '학년 기준 연도'는 업로드하는 파일의 학년이 몇 년도 기준인지 입력합니다. 해가 바뀌면 학년이 자동으로 올라갑니다 (설정에서 끌 수 있음).<br>

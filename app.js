@@ -834,6 +834,56 @@ function openExtEdit(r){
     log('외부생 삭제', '', base['이름']); closeModal(); rebuildExt(); renderExternal();
   };
 }
+/* ---------- 외부생 직접 입력 ---------- */
+async function openExtAdd(keep){
+  await ensureExternal();
+  const regions = uniq(EXT_ALL.map(r => r._region)).sort(ko);
+  modal(`<h3>외부생 직접 입력</h3>
+    <div class="efgrid">
+      ${field('이름','이름 *', '')}${field('학부모 연락처','학부모 연락처 *', '', '010-1234-5678')}
+      ${field('학교','학교', keep?.school || '')}${field('__grade','현재 학년', keep?.grade || '', '예) 초5, 중2, 예비중1')}
+      <label class="ef"><span>지역</span><input data-ef="__region" list="addRegions" value="${esc(keep?.region || '')}" placeholder="예) 서울 서초구"></label>
+      ${field('메모','메모', '')}
+    </div>
+    <datalist id="addRegions">${regions.map(r => `<option value="${esc(r)}">`).join('')}</datalist>
+    <p class="muted" id="addMsg" style="min-height:18px"></p>
+    <div class="row" style="justify-content:flex-end"><button class="btn" onclick="closeModal()">닫기</button>
+      <button class="btn" id="addMore">저장 후 계속 입력</button><button class="btn primary" id="addSave">저장</button></div>`);
+  document.querySelector('[data-ef="이름"]').focus();
+  const save = async more => {
+    const v = Object.fromEntries([...document.querySelectorAll('[data-ef]')].map(i => [i.dataset.ef, i.value.trim()]));
+    const ph = digits(v['학부모 연락처']);
+    if (!v['이름']) return alert('이름을 입력해 주세요.');
+    if (!/^0\d{8,10}$/.test(ph)) return alert('학부모 연락처를 정확히 입력해 주세요. 예) 010-1234-5678');
+    const lv = v.__grade ? parseGrade(v.__grade) : null;
+    if (v.__grade && lv == null) return alert('학년을 인식할 수 없습니다. 예) 초3, 중1, 고2, 예비중1, 20세');
+    const region = v.__region ? parseRegion(v.__region) : '';
+    if (v.__region && !region) return alert('지역을 인식할 수 없습니다. 예) 서울 서초구, 경기 과천시');
+    const dup = EXT_ALL.find(r => norm(r['이름']) === norm(v['이름']) && rowPhone(r) === ph);
+    if (dup && !confirm(`${v['이름']} (${fmtPhone(ph)}) 학생이 이미 외부생 DB에 있습니다.\n그래도 추가할까요? (기존 학생을 고치려면 취소 후 검색 → [수정])`)) return;
+    if (S.optOut[ph] && !confirm(`${fmtPhone(ph)} 은(는) 수신거부 번호입니다. 추가해도 다운로드에서는 제외됩니다. 추가할까요?`)) return;
+    const [sd, gu] = region.split(' ');
+    const row = { '이름': v['이름'], '학부모 연락처': fmtPhone(ph), '상태': '직접 입력' };
+    if (v['학교']) row['학교'] = v['학교'];
+    if (v.__grade) row['학년'] = v.__grade;
+    if (gu) { row['시도'] = sd; row['시군구'] = gu; }
+    if (v['메모']) row['메모'] = v['메모'];
+    Object.assign(row, { _ph: ph, _lv: lv, _yr: CUR_YEAR, _region: region, _src: '직접 입력', _key: norm(v['이름']) + '|' + ph + (dup ? '|' + Date.now() : ''), _edited: today() });
+    const cols = [...S.external.cols];
+    Object.keys(row).filter(k => !k.startsWith('_') && !cols.includes(k)).forEach(k => cols.push(k));
+    cols.sort((a,b) => { const ia = EXT_ORDER.indexOf(a), ib = EXT_ORDER.indexOf(b); return (ia<0?99:ia) - (ib<0?99:ib); });
+    const chunk = await run('저장 중…', () => Store.addExternalRow(cols, row));
+    S.external.cols = cols; S.external.rows.push({...row, _chunk: chunk});
+    log('외부생 직접 입력', '', `${row['이름']} ${row['학부모 연락처']}`);
+    rebuildExt(); renderExternal();
+    if (more) { await openExtAdd({school: v['학교'], grade: v.__grade, region: v.__region}); $('#addMsg').textContent = `✓ ${row['이름']} 저장됨. 다음 학생을 입력하세요. (학교·학년·지역은 그대로 둠)`; }
+    else { closeModal(); alert(`${row['이름']} 학생을 외부생 DB에 추가했습니다.`); }
+  };
+  $('#addSave').onclick = () => save(false);
+  $('#addMore').onclick = () => save(true);
+  document.querySelectorAll('#modal [data-ef]').forEach(i => i.onkeydown = e => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); save(true); } });   // Enter = 저장 후 계속 입력
+}
+
 function gradeAll(on){ document.querySelectorAll('[data-grade]').forEach(c => on ? gradeOff.delete(c.dataset.grade) : gradeOff.add(c.dataset.grade)); renderExternal(); }
 function gradeBand(p){ document.querySelectorAll('[data-grade]').forEach(c => c.dataset.grade.startsWith(p) ? gradeOff.delete(c.dataset.grade) : gradeOff.add(c.dataset.grade)); renderExternal(); }
 function downloadExternal(){

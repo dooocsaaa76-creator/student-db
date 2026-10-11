@@ -170,6 +170,25 @@ window.Store = {
       parts.slice(1).forEach((part, k) => { const seq = Date.now() * 1000 + 500 + k; tx.set(doc(db, "externalChunks", `c${seq}`), { seq, rows: part }); });
     });
   },
+  // 직접 입력한 외부생 1명 추가: 마지막 묶음에 여유가 있으면 이어 붙이고, 없으면 새 묶음. 저장된 묶음 id 반환
+  async addExternalRow(cols, row) {
+    await setDoc(doc(db, "meta", "external"), { cols });
+    const last = await getDocs(query(collection(db, "externalChunks"), orderBy("seq", "desc"), limit(1)));
+    if (!last.empty) {
+      const ref = last.docs[0].ref;
+      const ok = await runTransaction(db, async tx => {
+        const snap = await tx.get(ref);
+        const rows = [...(snap.data().rows || []), row];
+        if (chunkRows(rows).length > 1) return false;
+        tx.update(ref, { rows });
+        return true;
+      });
+      if (ok) return ref.id;
+    }
+    const seq = Date.now() * 1000;
+    await setDoc(doc(db, "externalChunks", `c${seq}`), { seq, rows: [row] });
+    return `c${seq}`;
+  },
   saveLeadEdit(id, data) { return setDoc(doc(db, "leadEdits", id), data); },
   removeLeadEdit(id) { return deleteDoc(doc(db, "leadEdits", id)); },
   async replaceExternal(cols, rows) {
