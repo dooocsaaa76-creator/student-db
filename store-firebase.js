@@ -152,6 +152,24 @@ window.Store = {
       tx.update(ref, { rows });
     });
   },
+  // 같은 묶음의 여러 행을 한 번에 수정 (업로드 시 학년 갱신 등). 커지면 넘치는 행은 새 묶음으로 분리
+  async patchExternalRows(chunkId, pairs) {
+    const strip = ({ _chunk, ...r }) => r;
+    const stable = o => JSON.stringify(Object.keys(o).sort().map(k => [k, o[k]]));
+    await runTransaction(db, async tx => {
+      const ref = doc(db, "externalChunks", chunkId), snap = await tx.get(ref);
+      if (!snap.exists()) throw new Error("외부생 DB가 다른 곳에서 바뀌었습니다. 새로고침 후 다시 시도해 주세요.");
+      const rows = snap.data().rows || [];
+      const at = new Map(); rows.forEach((r, i) => at.set(r._key || stable(r), i));
+      for (const { orig, next } of pairs) {
+        const o = strip(orig), i = at.get(o._key || stable(o));
+        if (i != null) rows[i] = strip(next);                 // 그 사이 지워진 행은 건너뜀
+      }
+      const parts = chunkRows(rows);
+      tx.update(ref, { rows: parts[0] });
+      parts.slice(1).forEach((part, k) => { const seq = Date.now() * 1000 + 500 + k; tx.set(doc(db, "externalChunks", `c${seq}`), { seq, rows: part }); });
+    });
+  },
   saveLeadEdit(id, data) { return setDoc(doc(db, "leadEdits", id), data); },
   removeLeadEdit(id) { return deleteDoc(doc(db, "leadEdits", id)); },
   async replaceExternal(cols, rows) {

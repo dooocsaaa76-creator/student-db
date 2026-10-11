@@ -91,17 +91,19 @@ const ALIAS = {
   id:['id','stdid','아이디','학생id','원생id','회원id','학번','학생번호','원생번호','고유번호'],
   name:['이름','stdname','학생명','성명','학생이름','원생명'],
   grade:['학년','현재학년','stdgradetype','gradetype'],
-  school:['학교','학교명','재학학교','schlname'],
+  school:['학교','학교명','재학학교','schlname','학교이름'],
   cls:['클래스','반','class','클래스명','반명','배치반'],
   clsStatus:['클래스상태'],
   teacher:['교사','담임','선생님','담당교사','담임교사','강사','담당강사'],
   parentPhone:['학부모연락처','부모연락처','보호자연락처','학부모전화','학부모번호','학부모휴대폰','학부모핸드폰','부모님연락처'],
   studentPhone:['학생연락처','학생전화','학생휴대폰','학생핸드폰','학생전화번호'],
   phone:['학부모연락처','stdguardian1tel','guardian1tel','보호자연락처','연락처','전화번호','휴대폰','핸드폰','전화','휴대전화','핸드폰번호','휴대폰번호','연락처1'],
-  region:['지역','지역명','주소','거주지','거주지역','소재지','주소지','saddrroad','도로명주소'],
-  sido:['saddrsi','시도','광역시도','시'],
-  gu:['saddrgu','시군구','구','구군'],
-  dong:['saddrdong','동','읍면동','법정동'],
+  region:['지역','지역명','주소','거주지','거주지역','소재지','주소지','saddrroad','도로명주소','상세','상세주소'],
+  sido:['saddrsi','시도','광역시도','시','주소1'],
+  gu:['saddrgu','시군구','구','구군','주소2'],
+  dong:['saddrdong','동','읍면동','법정동','주소3'],
+  sphone:['stdhandphone','학생연락처','학생휴대폰','학생전화번호'],
+  phone2:['stdguardian2tel','학부모연락처2','보호자연락처2'],
   status:['stdstatus','학생상태','상태'],
   memo:['메모','비고'],
 };
@@ -417,8 +419,8 @@ const REGION_PRESETS = {
   '마포': ['서울 마포구','서울 서대문구','서울 은평구'],
 };
 // 업로드 파일의 열을 표준 열 이름으로 통일 (영문 std_* / 한글 헤더 모두 같은 열로 모임)
-const EXT_FIELDS = ['id','name','school','grade','phone','status','sido','gu','dong','region'];
-const EXT_CANON = {id:'ID', name:'이름', school:'학교', grade:'학년', phone:'학부모 연락처', status:'상태', sido:'시도', gu:'시군구', dong:'동', region:'주소'};
+const EXT_FIELDS = ['id','name','school','grade','phone','status','sido','gu','dong','region','sphone','phone2'];
+const EXT_CANON = {id:'ID', name:'이름', school:'학교', grade:'학년', phone:'학부모 연락처', status:'상태', sido:'시도', gu:'시군구', dong:'동', region:'주소', sphone:'학생 연락처', phone2:'학부모 연락처2'};
 const EXT_ORDER = Object.values(EXT_CANON);
 const PHONE_COLS = ['학부모 연락처','연락처','전화번호','휴대폰','핸드폰'];
 const digits = v => { let d = String(v ?? '').replace(/\D/g,''); if ((d.length===10||d.length===9) && /^1[016789]/.test(d)) d = '0'+d; return d; };
@@ -500,51 +502,159 @@ function regionOf(r){
   return g;
 }
 
-async function externalUpload(fname, sheets){
-  await ensureExternal();
-  let t = locateTable(sheets, EXT_FIELDS, ['grade']);
-  if (!t) { if (!confirm('"학년" 열을 찾지 못했습니다. 학년 구분 없이(미분류) 업로드할까요?')) return;
-    t = locateTable(sheets, EXT_FIELDS, []) || {sheet:sheets[0], hi:0, map:{}}; }
-  const {sheet, hi, map} = t;
-  const body = sheet.rows.slice(hi+1).filter(row => row.some(c=>String(c).trim()));
-  // 열 이름: 인식된 열은 표준 이름, 나머지는 원래 이름. 내용이 전부 빈 열은 버림
+// 여러 시트 업로드 + 학년 갱신 (externalUpload 대체)
+// 1) 모든 시트에서 표를 찾아 시트별 미리보기 → 2) 포함할 시트·지역 지정·갱신 옵션 선택 → 3) 계획(plan) 계산 후 반영
+let extPending = null;
+const cleanVal = v => { const s = String(v ?? '').trim(); return /^null$/i.test(s) ? '' : s; };
+const extKeyOf = r => r['ID'] ? 'id:' + r['ID'] : (r['이름'] ? norm(r['이름']) + '|' + r._ph : (r._ph ? 'ph:' + r._ph + '|' + (r._lv ?? '') : null));
+
+// 시트 하나 → 표준 열 이름으로 바꾼 행 목록
+function parseExtSheet(sheet, baseYear){
+  const t = locateTable([sheet], EXT_FIELDS, ['phone']);
+  if (!t) return null;
+  const {hi, map} = t;
+  const body = sheet.rows.slice(hi+1).filter(row => row.some(c => cleanVal(c)));
   const byIdx = {}; Object.entries(map).forEach(([f,i]) => byIdx[i] = EXT_CANON[f]);
   const header = sheet.rows[hi].map((h,i) => byIdx[i] || String(h).trim() || `열${i+1}`);
-  const used = header.map((h,i) => body.some(row => String(row[i] ?? '').trim()));
-  const baseYear = +$('#eBaseYear').value || CUR_YEAR;
-  const replace = document.querySelector('input[name=eMode]:checked').value === 'replace';
-  if (replace && S.external.rows.length && !confirm(`기존 외부생 DB ${S.external.rows.length.toLocaleString()}건을 모두 지우고 새 파일로 교체할까요?`)) return;
-  const fileCols = header.filter((h,i) => used[i]);
-  const cols = replace ? [] : [...S.external.cols];
-  fileCols.forEach(h => { if (!cols.includes(h)) cols.push(h); });
-  cols.sort((a,b) => { const ia = EXT_ORDER.indexOf(a), ib = EXT_ORDER.indexOf(b); return (ia<0?99:ia) - (ib<0?99:ib); });
-  const seen = new Set(replace ? [] : S.external.rows.map(r=>r._key).filter(Boolean));
-  const added = []; let dup=0, unk=0, noReg=0;
+  const used = header.map((h,i) => body.some(row => cleanVal(row[i])));
+  const rows = [];
   for (const row of body) {
-    const r = {}; header.forEach((h,i)=>{ if (!used[i]) return; const v = String(row[i] ?? '').trim(); if (v) r[h] = v; });
-    if (r['학부모 연락처']) r['학부모 연락처'] = fmtPhone(r['학부모 연락처']);
+    const r = {}; header.forEach((h,i) => { if (!used[i]) return; const v = cleanVal(row[i]); if (v) r[h] = v; });
+    ['학부모 연락처','학생 연락처','학부모 연락처2'].forEach(c => { if (r[c]) r[c] = fmtPhone(r[c]); });
     r._ph = digits(r['학부모 연락처']);
-    r._key = r['ID'] ? 'id:' + r['ID'] : (r._ph ? norm(r['이름']) + '|' + r._ph : null);   // 학생 ID 우선, 없으면 이름+연락처
-    if (r._key && seen.has(r._key)) { dup++; continue; }
-    if (r._key) seen.add(r._key);
-    r._lv = parseGrade(r['학년']); r._yr = baseYear;
+    if (!r._ph) continue;                                  // 학부모 연락처 없는 행은 제외
+    r._lv = parseGrade(r['학년']); r._yr = baseYear;        // 학년 칸 글자 기준 (시트 이름은 보지 않음)
     r._region = regionOf(r);
-    r._src = fname;
-    if (r._lv == null) unk++;
-    if (!r._region) noReg++;
-    added.push(r);
+    r._src = sheet.name;
+    r._key = extKeyOf(r);
+    rows.push(r);
   }
-  await run(`외부생 DB 저장 중… (${added.length.toLocaleString()}건)`, async () => {
-    if (replace) await Store.replaceExternal(cols, added); else await Store.appendExternal(cols, added);
-    setExternal(await Store.loadExternal());
-    log('외부생 업로드', fname, `${added.length}건 추가${dup?` · 중복 ${dup}건 제외`:''}${unk?` · 학년 미분류 ${unk}건`:''} (기준 ${baseYear}년${replace?', 전체 교체':''})`);
-  });
-  renderExternal(); renderBackup();
-  const got = f => map[f]!=null ? sheet.rows[hi][map[f]] : '없음';
-  alert(`외부생 DB 업로드 완료\n추가 ${added.length.toLocaleString()}건${dup?` · 이미 있는 학생 ${dup.toLocaleString()}건 제외`:''}`
-    + `${unk?`\n학년을 인식하지 못한 ${unk}건은 '미분류'로 분류됩니다.`:''}${noReg?`\n지역 정보가 없는 ${noReg}건은 '지역 미입력'으로 분류됩니다.`:''}`
-    + `\n\n인식된 열: 학년=${got('grade')}, 연락처=${got('phone')}, 지역=${[got('sido'),got('gu')].filter(x=>x!=='없음').join('+') || got('region')}`);
+  const got = Object.keys(map).map(f => EXT_CANON[f]).filter(Boolean);
+  return { name: sheet.name, rows, cols: header.filter((h,i) => used[i]), got, hasRegion: rows.some(r => r._region) };
 }
+
+async function externalUpload(fname, sheets){
+  await ensureExternal();
+  const baseYear = +$('#eBaseYear').value || CUR_YEAR;
+  const parsed = sheets.map(sh => parseExtSheet(sh, baseYear)).filter(p => p && p.rows.length);
+  if (!parsed.length) return alert('학부모 연락처 열이 있는 시트를 찾지 못했습니다.');
+  extPending = { fname, baseYear, parsed, opt: parsed.map(p => ({on:true, region:''})), upd:true, updW:true };
+  renderExtPreview();
+}
+
+// 반영 계획: 신규 행 / 기존 행 수정 / 퇴원생 학년 수정 (데이터는 아직 바꾸지 않음)
+function planExt(){
+  const {parsed, opt, upd, updW, baseYear} = extPending;
+  const replace = document.querySelector('input[name=eMode]:checked').value === 'replace';
+  const existing = replace ? [] : S.external.rows;
+  const byKey = new Map(), byNP = new Map(), byPhLv = new Set();
+  const indexRow = r => { if (r._key) byKey.set(r._key, r); if (r['이름']) byNP.set(norm(r['이름']) + '|' + rowPhone(r), r); byPhLv.add(rowPhone(r) + '|' + nowLevel(r._lv, r._yr, S.settings.extPromote)); };
+  existing.forEach(indexRow);
+  const fileSeen = new Map(), newRows = [], newSet = new Set(), patches = new Map();   // patches: 기존 행 → 바뀐 행
+  let gradeFix = 0, filled = 0, dupInFile = 0, namelessSkip = 0;
+  const FILL = ['ID','학교','시도','시군구','동','주소','상태','학생 연락처','학부모 연락처2'];
+  parsed.forEach((p, si) => {
+    if (!opt[si].on) return;
+    const forced = opt[si].region.trim();
+    for (const r0 of p.rows) {
+      const r = {...r0};
+      if (forced) { const g = parseRegion(forced); r._region = g; const [sd, gu] = g.split(' '); if (!r['시도'] && gu) r['시도'] = sd; if (!r['시군구']) r['시군구'] = gu || sd; }
+      const f = fileSeen.get(r._key);
+      if (f) { dupInFile++; FILL.forEach(c => { if (!f[c] && r[c]) f[c] = r[c]; }); continue; }   // 파일 안 중복: 앞 시트 우선, 빈 칸만 보충
+      fileSeen.set(r._key, r);
+      let e = byKey.get(r._key) || (r['이름'] ? byNP.get(norm(r['이름']) + '|' + r._ph) : null);
+      if (!e && !r['이름'] && byPhLv.has(r._ph + '|' + r._lv)) { namelessSkip++; continue; }   // 이름 없는 행: 같은 번호·학년이 이미 있으면 건너뜀
+      if (!e) { newRows.push(r); newSet.add(r); indexRow(r); continue; }
+      if (newSet.has(e)) continue;
+      const cur = patches.get(e) || {orig:e, next:{...e}};
+      let ch = false;
+      if (upd && r._lv != null && nowLevel(r._lv, r._yr, S.settings.extPromote) !== nowLevel(cur.next._lv, cur.next._yr, S.settings.extPromote)) {
+        cur.next['학년'] = r['학년']; cur.next._lv = r._lv; cur.next._yr = r._yr; gradeFix++; ch = true;
+      }
+      let fillCh = false;
+      FILL.forEach(c => { if (!cur.next[c] && r[c]) { cur.next[c] = r[c]; fillCh = true; } });
+      if (!cur.next._region && r._region) { cur.next._region = r._region; fillCh = true; }
+      if (fillCh) { cur.next._region = cur.next._region || regionOf(cur.next); filled++; ch = true; }
+      if (ch) patches.set(e, cur);
+    }
+  });
+  // 퇴원생 학년 (이름 + 학부모/학생 연락처가 같은 경우만)
+  const wUpdates = [];
+  if (updW) {
+    for (const w of Object.values(S.withdrawn)) {
+      const m = [w.parentPhone, w.studentPhone].map(digits).filter(Boolean).map(d => fileSeen.get(norm(w.name) + '|' + d)).find(Boolean);
+      if (m && m._lv != null && nowLevel(m._lv, m._yr) !== nowLevel(w.gLevel, w.gYear)) wUpdates.push({w, lv:m._lv, yr:m._yr, text:m['학년']});
+    }
+  }
+  return {replace, newRows, patches:[...patches.values()], gradeFix, filled, dupInFile, namelessSkip, wUpdates};
+}
+
+function renderExtPreview(){
+  const P = extPending, plan = planExt();
+  const regions = uniq(EXT_ALL.map(r => r._region)).sort(ko);
+  modal(`<h3>외부생 DB 업로드 확인</h3>
+    <p class="muted">${esc(P.fname)} · 학년 기준 연도 ${P.baseYear}년 · 학년은 각 행의 '학년' 칸 글자 기준 (예: 중2 (grade 7) → 중2)</p>
+    <table class="pv"><thead><tr><th>포함</th><th>시트</th><th>행</th><th>인식한 열</th><th>지역 지정</th></tr></thead><tbody>
+    ${P.parsed.map((p,i) => `<tr><td><input type="checkbox" data-pvon="${i}" ${P.opt[i].on?'checked':''}></td><td><b>${esc(p.name)}</b></td><td>${p.rows.length.toLocaleString()}</td>
+      <td class="muted" style="white-space:normal;max-width:260px">${esc(p.got.join(', '))}${p.got.includes('이름') ? '' : ' <span style="color:var(--warn)">(이름 없음)</span>'}</td>
+      <td><input data-pvreg="${i}" list="pvRegions" value="${esc(P.opt[i].region)}" placeholder="${p.hasRegion ? '파일의 지역 사용' : '예) 서울 서초구'}" style="width:130px"></td></tr>`).join('')}
+    </tbody></table>
+    <datalist id="pvRegions">${regions.map(r => `<option value="${esc(r)}">`).join('')}</datalist>
+    <div style="margin:12px 0">
+      <label class="radio"><input type="checkbox" id="pvUpd" ${P.upd?'checked':''}> 기존 학생과 학년이 다르면 <b>이 파일 학년으로 수정</b></label><br>
+      <label class="radio"><input type="checkbox" id="pvUpdW" ${P.updW?'checked':''}> 퇴원생 학년도 수정 (이름+연락처가 같은 경우)</label>
+    </div>
+    <div class="info">
+      ${plan.replace ? '<b>기존 외부생 DB를 모두 지우고</b> 이 파일로 교체합니다.<br>' : ''}
+      신규 추가 <b>${plan.newRows.length.toLocaleString()}</b>건
+      · 기존 학생 학년 수정 <b>${plan.gradeFix.toLocaleString()}</b>건
+      · 빈 칸(학교·지역 등) 보충 <b>${plan.filled.toLocaleString()}</b>건
+      ${plan.wUpdates.length ? ` · 퇴원생 학년 수정 <b>${plan.wUpdates.length}</b>명` : ''}<br>
+      <span class="muted">파일 안 중복 ${plan.dupInFile.toLocaleString()}건은 1건으로 합침 (앞 시트 우선)${plan.namelessSkip ? ` · 이름 없는 행 중 같은 번호·학년이 이미 있는 ${plan.namelessSkip.toLocaleString()}건 제외` : ''}</span>
+    </div>
+    <div class="row" style="justify-content:flex-end;margin-top:12px"><button class="btn" onclick="closeModal()">취소</button><button class="btn primary" onclick="applyExtUpload()">반영하기</button></div>`);
+}
+$('#modal').addEventListener('change', e => {
+  if (!extPending || !$('#modal .pv')) return;
+  const el = e.target;
+  if (el.dataset.pvon != null) extPending.opt[+el.dataset.pvon].on = el.checked;
+  else if (el.dataset.pvreg != null) extPending.opt[+el.dataset.pvreg].region = el.value;
+  else if (el.id === 'pvUpd') extPending.upd = el.checked;
+  else if (el.id === 'pvUpdW') extPending.updW = el.checked;
+  else return;
+  e.stopPropagation(); renderExtPreview();
+});
+
+async function applyExtUpload(){
+  const P = extPending, plan = planExt();
+  if (plan.replace && S.external.rows.length && !confirm(`기존 외부생 DB ${S.external.rows.length.toLocaleString()}건을 모두 지우고 교체할까요?`)) return;
+  const cols = plan.replace ? [] : [...S.external.cols];
+  P.parsed.forEach((p,i) => { if (P.opt[i].on) p.cols.forEach(c => { if (!cols.includes(c)) cols.push(c); }); });
+  if (plan.newRows.some(r => r['시도']) && !cols.includes('시도')) cols.push('시도');
+  if (plan.newRows.some(r => r['시군구']) && !cols.includes('시군구')) cols.push('시군구');
+  cols.sort((a,b) => { const ia = EXT_ORDER.indexOf(a), ib = EXT_ORDER.indexOf(b); return (ia<0?99:ia) - (ib<0?99:ib); });
+  closeModal();
+  await run(`저장 중… (신규 ${plan.newRows.length.toLocaleString()}건 · 수정 ${plan.patches.length.toLocaleString()}건)`, async () => {
+    if (plan.replace) await Store.replaceExternal(cols, plan.newRows);
+    else {
+      // 기존 행 수정: 저장 묶음(chunk)별로 한 번에
+      const byChunk = {};
+      plan.patches.forEach(({orig, next}) => { next._edited = today(); (byChunk[orig._chunk] ||= []).push({orig, next}); });
+      for (const [chunk, pairs] of Object.entries(byChunk)) await Store.patchExternalRows(chunk, pairs);
+      await Store.appendExternal(cols, plan.newRows);
+    }
+    if (plan.wUpdates.length) {
+      await Store.writeStudents(plan.wUpdates.map(u => ({id:u.w.id, data:{grade:u.text, gLevel:u.lv, gYear:u.yr, updatedAt:today()}})));
+      plan.wUpdates.forEach(u => Object.assign(u.w, {grade:u.text, gLevel:u.lv, gYear:u.yr}));
+    }
+    setExternal(await Store.loadExternal());
+    log('외부생 업로드', P.fname, `신규 ${plan.newRows.length} · 학년 수정 ${plan.gradeFix} · 빈칸 보충 ${plan.filled}${plan.wUpdates.length?` · 퇴원생 학년 ${plan.wUpdates.length}`:''} (기준 ${P.baseYear}년, 시트 ${P.opt.filter(o=>o.on).length}개)`);
+  });
+  extPending = null;
+  renderExternal(); renderWithdrawn(); renderBackup();
+  alert(`외부생 DB 반영 완료\n신규 ${plan.newRows.length.toLocaleString()}건 · 학년 수정 ${plan.gradeFix.toLocaleString()}건 · 빈 칸 보충 ${plan.filled.toLocaleString()}건${plan.wUpdates.length?`\n퇴원생 학년 수정 ${plan.wUpdates.length}명`:''}`);
+}
+
 async function clearExternal(){
   await ensureExternal();
   if (!S.external.rows.length) return;

@@ -54,7 +54,7 @@ td.empty input{background:var(--warn-weak)}
 @media(max-width:900px){.grid2{grid-template-columns:1fr}}
 .modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.4);display:none;align-items:center;justify-content:center;z-index:20;padding:16px}
 .modal-bg.on{display:flex}
-.modal{background:#fff;border-radius:10px;max-width:720px;width:100%;max-height:85vh;overflow:auto;padding:20px}
+.modal{background:#fff;border-radius:10px;max-width:880px;width:100%;max-height:85vh;overflow:auto;padding:20px}
 .modal h3{margin:0 0 12px}
 details{margin:6px 0}
 details summary{cursor:pointer}
@@ -87,3 +87,7 @@ textarea{border:1px solid var(--line);border-radius:6px;padding:6px 8px;font:inh
 @media(max-width:600px){.efgrid{grid-template-columns:1fr}}
 .ef{display:flex;flex-direction:column;gap:3px;font-size:12px;color:var(--muted)}
 .ef input{border:1px solid var(--line);border-radius:6px;padding:7px 9px;font:inherit;font-size:14px;color:var(--text)}
+table.pv{font-size:13px;margin-top:8px}
+table.pv th{position:static}
+table.pv td{vertical-align:middle}
+table.pv input[type=text],table.pv input:not([type]){border:1px solid var(--line);border-radius:6px;padding:4px 6px;font:inherit}
