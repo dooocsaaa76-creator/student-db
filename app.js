@@ -456,7 +456,7 @@ let EXT_ALL = [], extView = [];
 const LEAD_COLS = ['이름','학교','학년','학부모 연락처','상태','신청일','설명회'];
 function setExternal(d){ S.external = {cols:d.cols||[], rows:d.rows||[]};
   // 저장된 지역도 불러올 때 다시 계산 (이전 규칙으로 저장된 '강남구', '이번' 같은 값 보정). 지역을 직접 지정한 행(시도/시군구 칸)은 그대로 반영됨
-  S.external.rows.forEach(r => { r._region = regionOf(r) || (String(r._region||'').includes(' ') ? r._region : ''); }); S.leads = d.leads||[]; S.leadsMeta = d.leadsMeta||null; S.leadEdits = d.leadEdits||{}; rebuildExt(); }
+  S.external.rows.forEach(r => { r._region = regionOf(r); delete r._rg; }); S.leads = d.leads||[]; S.leadsMeta = d.leadsMeta||null; S.leadEdits = d.leadEdits||{}; rebuildExt(); }
 const leadId = r => 'L_' + norm(r['이름']) + '_' + (r._ph || rowPhone(r));
 function rebuildExt(){
   const merged = {};
@@ -484,7 +484,32 @@ function rebuildExt(){
     return x;
   });
   EXT_ALL = [...rows, ...leads];
+  inferRegionsBySchool();
   if (regionIsDefault) regionSel = defaultRegionSel();
+}
+// 학교 이름 정규화: 서원초등학교/서원초 → 서원초, 동덕여자중학교/동덕여중 → 동덕여중
+const schoolKey = s => String(s||'').replace(/\s/g,'').replace(/등학교$/,'').replace(/학교$/,'').replace(/여자/,'여');
+// 지역이 없는 학생은 학교 이름으로 지역 추정 (외부생 DB 안에서 같은 학교 학생들의 지역이 80% 이상 한 곳일 때만)
+function inferRegionsBySchool(){
+  const stat = new Map();
+  for (const r of EXT_ALL) {
+    if (r._rg) { delete r._rg; r._region = ''; }      // 이전 추정값은 다시 계산
+    const k = schoolKey(r['학교']);
+    if (!r._region || k.length < 2) continue;
+    const m = stat.get(k) || {}; m[r._region] = (m[r._region] || 0) + 1; stat.set(k, m);
+  }
+  const guess = new Map();
+  for (const [k, m] of stat) {
+    const tot = Object.values(m).reduce((a, b) => a + b, 0), [top, n] = Object.entries(m).sort((a, b) => b[1] - a[1])[0];
+    if (n / tot >= 0.8) guess.set(k, top);
+  }
+  let cnt = 0;
+  for (const r of EXT_ALL) {
+    if (r._region) continue;
+    const g = guess.get(schoolKey(r['학교']));
+    if (g) { r._region = g; r._rg = 1; cnt++; }
+  }
+  S.regionGuessCount = cnt;
 }
 // '설명회' 칸에는 설명회·입학고사 신청 내역이 함께 들어 있어 화면·다운로드에서는 '신청 내역'으로 표시
 const colLabel = c => c === '설명회' ? '신청 내역' : c;
@@ -575,6 +600,7 @@ function planExt(){
       if (!e) { newRows.push(r); newSet.add(r); indexRow(r); continue; }
       if (newSet.has(e)) continue;
       const cur = patches.get(e) || {orig:e, next:{...e}};
+      if (cur.next._rg) { delete cur.next._rg; cur.next._region = ''; }
       let ch = false;
       if (upd && r._lv != null && nowLevel(r._lv, r._yr, S.settings.extPromote) !== nowLevel(cur.next._lv, cur.next._yr, S.settings.extPromote)) {
         cur.next['학년'] = r['학년']; cur.next._lv = r._lv; cur.next._yr = r._yr; gradeFix++; ch = true;
@@ -697,7 +723,7 @@ function renderExternal(){
   const gCount = {}; rows.forEach(r => { const k = extGradeKey(r); gCount[k] = (gCount[k]||0)+1; });
   const rCount = {}; rows.forEach(r => { const k = r._region || '__none'; rCount[k] = (rCount[k]||0)+1; });
   const withRegion = rows.length - (rCount.__none||0);
-  $('#eStats').innerHTML = !extLoaded ? '' : `<div class="stat"><b>${rows.length.toLocaleString()}</b>건 외부생 DB</div><div class="stat"><b>${withRegion.toLocaleString()}</b>건 지역 입력됨</div>${gCount['미분류']?`<div class="stat warn"><b>${gCount['미분류']}</b>건 학년 미분류</div>`:''}<div class="stat"><b>${S.leads.length.toLocaleString()}</b>건 설명회·입학고사 신청 <span class="muted">(구글시트 자동 연동${S.leadsMeta?.lastSync ? ' · ' + new Date(S.leadsMeta.lastSync).toLocaleString('ko-KR') : ' · 아직 연동 전'})</span></div><div class="stat"><b>${Object.keys(S.optOut).length}</b>건 수신거부 번호 (자동 제외)</div>`;
+  $('#eStats').innerHTML = !extLoaded ? '' : `<div class="stat"><b>${rows.length.toLocaleString()}</b>건 외부생 DB</div><div class="stat"><b>${withRegion.toLocaleString()}</b>건 지역 입력됨${S.regionGuessCount ? ` <span class="muted">(학교로 추정 ${S.regionGuessCount.toLocaleString()}건 포함)</span>` : ''}</div>${gCount['미분류']?`<div class="stat warn"><b>${gCount['미분류']}</b>건 학년 미분류</div>`:''}<div class="stat"><b>${S.leads.length.toLocaleString()}</b>건 설명회·입학고사 신청 <span class="muted">(구글시트 자동 연동${S.leadsMeta?.lastSync ? ' · ' + new Date(S.leadsMeta.lastSync).toLocaleString('ko-KR') : ' · 아직 연동 전'})</span></div><div class="stat"><b>${Object.keys(S.optOut).length}</b>건 수신거부 번호 (자동 제외)</div>`;
   // 학년
   const gKeys = Object.keys(gCount).sort((a,b)=>(a==='미분류')-(b==='미분류') || (parseGrade(a)??0)-(parseGrade(b)??0));
   $('#eGrades').innerHTML = gKeys.length ? gKeys.map(k=>`<label class="chip ${gradeOff.has(k)?'':'on'}"><input type="checkbox" data-grade="${esc(k)}" ${gradeOff.has(k)?'':'checked'}>${esc(k)} <small>${gCount[k].toLocaleString()}</small></label>`).join('') : '<span class="muted">데이터가 없습니다.</span>';
@@ -738,7 +764,7 @@ function renderExternalResult(){
   extView = list.slice(0,200);
   $('#eTable').innerHTML = cols.length ? `<thead><tr><th></th><th>현재 학년</th><th>지역(인식)</th>${cols.map(c=>`<th>${esc(colLabel(c))}</th>`).join('')}</tr></thead><tbody>`
     + extView.map((r,i)=>{ const ph = rowPhone(r);
-        return `<tr><td><button class="btn sm" data-edit="${i}">수정</button> ${ph?`<button class="btn sm" data-optout="${esc(ph)}" data-oname="${esc(r['이름']||'')}">수신거부</button>`:''}${r._edited?' <span class="tag auto">수정됨</span>':''}</td><td><span class="tag">${esc(extGradeKey(r))}</span></td><td>${esc(r._region)}</td>${cols.map(c=>`<td>${esc(r[c])}</td>`).join('')}</tr>`; }).join('') + '</tbody>' : '';
+        return `<tr><td><button class="btn sm" data-edit="${i}">수정</button> ${ph?`<button class="btn sm" data-optout="${esc(ph)}" data-oname="${esc(r['이름']||'')}">수신거부</button>`:''}${r._edited?' <span class="tag auto">수정됨</span>':''}</td><td><span class="tag">${esc(extGradeKey(r))}</span></td><td>${esc(r._region)}${r._rg ? ' <span class="muted" title="학교 이름으로 추정한 지역">(학교)</span>' : ''}</td>${cols.map(c=>`<td>${esc(r[c])}</td>`).join('')}</tr>`; }).join('') + '</tbody>' : '';
 }
 document.addEventListener('change', e => {
   const el = e.target;
@@ -816,7 +842,7 @@ function openExtEdit(r){
   $('#efSave').onclick = async () => {
     const v = efv(), g = readGradeInput(v.__grade, g0); if (!g) return;
     if (!v['이름']) return alert('이름은 비울 수 없습니다.');
-    const next = {...base}; delete next._chunk;
+    const next = {...base}; delete next._chunk; if (next._rg) { delete next._rg; next._region = ''; }
     Object.entries(v).forEach(([k, x]) => { if (k === '__grade') return; if (x) next[k] = x; else delete next[k]; });
     if (next['학부모 연락처']) next['학부모 연락처'] = fmtPhone(next['학부모 연락처']);
     next._ph = digits(next['학부모 연락처']);
@@ -890,11 +916,11 @@ function downloadExternal(){
   const list = filteredExternal();
   if (!list.length) return alert('조건에 맞는 DB가 없습니다.');
   const cols = extCols();
-  const aoa = [['현재 학년', ...cols.map(colLabel)]];
-  list.forEach(r => aoa.push([extGradeKey(r), ...cols.map(c=>r[c] ?? '')]));
+  const aoa = [['현재 학년', '지역', ...cols.map(colLabel)]];
+  list.forEach(r => aoa.push([extGradeKey(r), r._region ? r._region + (r._rg ? ' (학교 추정)' : '') : '', ...cols.map(c=>r[c] ?? '')]));
   const boxes = [...document.querySelectorAll('[data-grade]')], gSel = boxes.filter(c=>c.checked).map(c=>c.dataset.grade);
   const tag = gSel.length === boxes.length ? '전체학년' : gSel.slice(0,4).join(',') + (gSel.length>4?'외':'');
-  writeXlsx(aoa, '외부생DB', `외부생DB_${tag}_${ymd()}_${list.length}건.xlsx`, [10, ...cols.map(c=>c==='주소'?50:14)]);
+  writeXlsx(aoa, '외부생DB', `외부생DB_${tag}_${ymd()}_${list.length}건.xlsx`, [10, 18, ...cols.map(c=>c==='주소'?50:14)]);
 }
 
 /* ================= 수신거부 ================= */
