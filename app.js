@@ -605,7 +605,7 @@ function renderExtPreview(){
       <label class="radio"><input type="checkbox" id="pvUpdW" ${P.updW?'checked':''}> 퇴원생 학년도 수정 (이름+연락처가 같은 경우)</label>
     </div>
     <div class="info">
-      ${plan.replace ? '<b>기존 외부생 DB를 모두 지우고</b> 이 파일로 교체합니다.<br>' : ''}
+      ${plan.replace ? `<div class="alert" style="font-size:15px">⚠ <b>전체 교체 모드</b>: 기존 외부생 DB ${S.external.rows.length.toLocaleString()}건을 <b>모두 지우고</b> 이 파일 내용만 남깁니다.<br>기존 DB에 더하려면 취소 후 '기존 DB에 추가'를 선택하세요.</div>` : ''}
       신규 추가 <b>${plan.newRows.length.toLocaleString()}</b>건
       · 기존 학생 학년 수정 <b>${plan.gradeFix.toLocaleString()}</b>건
       · 빈 칸(학교·지역 등) 보충 <b>${plan.filled.toLocaleString()}</b>건
@@ -648,9 +648,10 @@ async function applyExtUpload(){
       plan.wUpdates.forEach(u => Object.assign(u.w, {grade:u.text, gLevel:u.lv, gYear:u.yr}));
     }
     setExternal(await Store.loadExternal());
-    log('외부생 업로드', P.fname, `신규 ${plan.newRows.length} · 학년 수정 ${plan.gradeFix} · 빈칸 보충 ${plan.filled}${plan.wUpdates.length?` · 퇴원생 학년 ${plan.wUpdates.length}`:''} (기준 ${P.baseYear}년, 시트 ${P.opt.filter(o=>o.on).length}개)`);
+    log('외부생 업로드', P.fname, `신규 ${plan.newRows.length} · 학년 수정 ${plan.gradeFix} · 빈칸 보충 ${plan.filled}${plan.wUpdates.length?` · 퇴원생 학년 ${plan.wUpdates.length}`:''} (기준 ${P.baseYear}년, 시트 ${P.opt.filter(o=>o.on).length}개${plan.replace ? ', 전체 교체' : ''})`);
   });
   extPending = null;
+  document.querySelector('input[name=eMode][value=append]').checked = true;   // 실수로 다음 업로드까지 교체되지 않도록 항상 '추가'로 되돌림
   renderExternal(); renderWithdrawn(); renderBackup();
   alert(`외부생 DB 반영 완료\n신규 ${plan.newRows.length.toLocaleString()}건 · 학년 수정 ${plan.gradeFix.toLocaleString()}건 · 빈 칸 보충 ${plan.filled.toLocaleString()}건${plan.wUpdates.length?`\n퇴원생 학년 수정 ${plan.wUpdates.length}명`:''}`);
 }
