@@ -459,10 +459,16 @@ const DROP_COLS = new Set(['상태','brch_schl_type','brch_name']);
 function setExternal(d){ S.external = {cols:d.cols||[], rows:d.rows||[]};
   // 저장된 지역도 불러올 때 다시 계산 (이전 규칙으로 저장된 '강남구', '이번' 같은 값 보정). 지역을 직접 지정한 행(시도/시군구 칸)은 그대로 반영됨
   S.external.rows.forEach(r => { r._region = regionOf(r); delete r._rg; }); S.leads = d.leads||[]; S.leadsMeta = d.leadsMeta||null; S.leadEdits = d.leadEdits||{}; rebuildExt(); }
-const leadId = r => 'L_' + norm(r['이름']) + '_' + (r._ph || rowPhone(r));
+// 신청자 보정값 id는 구글시트 원래 연락처 기준 (웹에서 연락처를 고쳐도 같은 사람으로 찾을 수 있게)
+const leadId = r => 'L_' + norm(r['이름']) + '_' + (r._origPh || r._ph || rowPhone(r));
 function rebuildExt(){
   const merged = {};
-  for (const r of S.leads || []) {
+  // 웹에서 고친 연락처를 먼저 적용 → 고친 번호 기준으로 중복·기존 DB를 판단
+  const leadsIn = (S.leads || []).map(r => {
+    const e = (S.leadEdits || {})[leadId(r)];
+    return e && e.phone ? {...r, '학부모 연락처': e.phone, _ph: digits(e.phone), _origPh: r._ph} : r;
+  });
+  for (const r of leadsIn) {
     const k = norm(r['이름']) + '|' + r._ph, m = merged[k];
     if (!m) { merged[k] = {...r, _lead:true}; continue; }
     const latest = (r['신청일']||'') > (m['신청일']||'') ? {...r, _lead:true} : m;
@@ -877,6 +883,7 @@ function openExtEdit(r){
     modal(`<h3>신청자 수정</h3>
       <p class="muted">${esc(r['이름'])} · ${esc(r['학부모 연락처'])} · ${esc(r['설명회'])}<br>구글시트 원본은 바뀌지 않고 <b>이 웹페이지에서만</b> 적용됩니다. 동기화가 돌아도 유지됩니다.</p>
       <div class="efgrid">${field('grade','현재 학년', g0, '예) 중2')}${field('school','학교', r['학교'])}
+        ${field('phone','학부모 연락처', r['학부모 연락처'], '010-1234-5678')}
         <label class="ef"><span>지역</span><input data-ef="region" list="leadRegions" value="${esc(e.region || '')}" placeholder="${esc(r._rg ? r._region + ' (학교로 추정됨)' : '예) 서울 서초구')}"></label>
         ${field('memo','메모', r['메모'])}</div>
       <datalist id="leadRegions">${regions.map(x => `<option value="${esc(x)}">`).join('')}</datalist>
@@ -888,7 +895,17 @@ function openExtEdit(r){
       const v = efv(), g = readGradeInput(v.grade, g0); if (!g) return;
       const region = v.region ? parseRegion(v.region) : '';
       if (v.region && !region) return alert('지역을 인식할 수 없습니다. 예) 서울 서초구, 경기 과천시');
+      // 연락처: 구글시트 원래 번호와 다를 때만 보정값으로 저장
+      const ph = digits(v.phone);
+      if (!/^0\d{8,10}$/.test(ph)) return alert('학부모 연락처를 정확히 입력해 주세요. 예) 010-1234-5678');
+      const origPh = r._origPh || r._ph;
+      if (ph !== rowPhone(r)) {
+        const dup = EXT_ALL.find(x => x !== r && norm(x['이름']) === norm(r['이름']) && rowPhone(x) === ph);
+        if (dup && !confirm(`${r['이름']} (${fmtPhone(ph)}) 학생이 이미 외부생 DB에 있습니다.\n그래도 이 번호로 바꿀까요? (같은 학생이면 두 줄이 하나로 합쳐집니다)`)) return;
+        if (S.optOut[ph] && !confirm(`${fmtPhone(ph)} 은(는) 수신거부 번호입니다. 바꾸면 다운로드에서 제외됩니다. 계속할까요?`)) return;
+      }
       const data = {...e, school: v.school, memo: v.memo, region, by: ME||'', at: today()};
+      if (ph !== origPh) data.phone = fmtPhone(ph); else delete data.phone;
       if (!g.same) { if (g.text) Object.assign(data, {grade:g.text, _lv:g.lv, _yr:CUR_YEAR}); else { delete data.grade; delete data._lv; delete data._yr; } }
       await run('저장 중…', () => Store.saveLeadEdit(id, data));
       S.leadEdits[id] = data; log('설명회 신청자 수정', '', r['이름']); closeModal(); rebuildExt(); renderExternal();
