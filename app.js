@@ -492,6 +492,7 @@ function rebuildExt(){
     if (e.grade) { x['학년'] = e.grade + ' (웹 수정)'; x._lv = e._lv; x._yr = e._yr; }
     if (e.school) x['학교'] = e.school;
     if (e.memo) x['메모'] = e.memo;
+    if (e.region) { const [sd, gu] = e.region.split(' '); x._region = e.region; x['시도'] = sd; if (gu) x['시군구'] = gu; }
     return x;
   });
   EXT_ALL = [...rows, ...leads];
@@ -820,16 +821,22 @@ function openExtEdit(r){
   const efv = () => Object.fromEntries([...document.querySelectorAll('[data-ef]')].map(i => [i.dataset.ef, i.value.trim()]));
   if (r._lead) {      // 설명회 신청자: 웹 보정값만
     const id = leadId(r), e = S.leadEdits[id] || {}, g0 = gradeNow(r);
-    modal(`<h3>설명회 신청자 수정</h3>
+    const regions = uniq(EXT_ALL.map(x => x._region)).sort(ko);
+    modal(`<h3>신청자 수정</h3>
       <p class="muted">${esc(r['이름'])} · ${esc(r['학부모 연락처'])} · ${esc(r['설명회'])}<br>구글시트 원본은 바뀌지 않고 <b>이 웹페이지에서만</b> 적용됩니다. 동기화가 돌아도 유지됩니다.</p>
-      <div class="efgrid">${field('grade','현재 학년', g0, '예) 중2')}${field('school','학교', r['학교'])}${field('memo','메모', r['메모'])}</div>
+      <div class="efgrid">${field('grade','현재 학년', g0, '예) 중2')}${field('school','학교', r['학교'])}
+        <label class="ef"><span>지역</span><input data-ef="region" list="leadRegions" value="${esc(e.region || '')}" placeholder="${esc(r._rg ? r._region + ' (학교로 추정됨)' : '예) 서울 서초구')}"></label>
+        ${field('memo','메모', r['메모'])}</div>
+      <datalist id="leadRegions">${regions.map(x => `<option value="${esc(x)}">`).join('')}</datalist>
       <div class="row" style="justify-content:space-between;margin-top:16px">
         <div>${S.leadEdits[id] ? '<button class="btn danger" id="efReset">수정 내용 지우기 (원래대로)</button>' : ''}</div>
         <div class="row"><button class="btn" onclick="closeModal()">취소</button><button class="btn primary" id="efSave">저장</button></div>
       </div>`);
     $('#efSave').onclick = async () => {
       const v = efv(), g = readGradeInput(v.grade, g0); if (!g) return;
-      const data = {...e, school: v.school, memo: v.memo, by: ME||'', at: today()};
+      const region = v.region ? parseRegion(v.region) : '';
+      if (v.region && !region) return alert('지역을 인식할 수 없습니다. 예) 서울 서초구, 경기 과천시');
+      const data = {...e, school: v.school, memo: v.memo, region, by: ME||'', at: today()};
       if (!g.same) { if (g.text) Object.assign(data, {grade:g.text, _lv:g.lv, _yr:CUR_YEAR}); else { delete data.grade; delete data._lv; delete data._yr; } }
       await run('저장 중…', () => Store.saveLeadEdit(id, data));
       S.leadEdits[id] = data; log('설명회 신청자 수정', '', r['이름']); closeModal(); rebuildExt(); renderExternal();
