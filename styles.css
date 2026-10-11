@@ -92,3 +92,7 @@ table.pv{font-size:13px;margin-top:8px}
 table.pv th{position:static}
 table.pv td{vertical-align:middle}
 table.pv input[type=text],table.pv input:not([type]){border:1px solid var(--line);border-radius:6px;padding:4px 6px;font:inherit}
+.colpanel{display:none;position:absolute;right:0;top:110%;z-index:10;background:#fff;border:1px solid var(--line);border-radius:8px;box-shadow:0 6px 20px rgba(0,0,0,.12);padding:10px;width:340px}
+.colpanel .chip{margin:0 4px 6px 0}
+th.sortable{cursor:pointer;user-select:none}
+th.sortable:hover{color:var(--accent)}

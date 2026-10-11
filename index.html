@@ -153,6 +153,7 @@
       <h2 style="margin:0">③ 결과 <span id="eResultCount"></span></h2>
       <div class="row"><input type="text" id="eSearch" placeholder="검색 (쉼표로 여러 개: 26년 1월, 26년 2월)" style="width:280px"><select id="eSource"><option value="">출처 전체</option><option value="upload">업로드한 DB만</option><option value="lead">설명회·입학고사 신청자만</option><option value="leadNew">신청자 중 기존 DB에 없는 사람</option></select>
       <label class="radio"><input type="checkbox" id="eDedupe" checked> 같은 연락처는 1건만 (형제 중복 발송 방지)</label>
+      <span style="position:relative"><button class="btn" id="eColBtn" onclick="toggleColPanel()">열 선택 ▾</button><div id="eColPanel" class="colpanel"></div></span>
       <button class="btn primary" onclick="downloadExternal()">선택한 DB 엑셀 다운로드</button></div>
     </div>
     <p class="muted" id="eSummary"></p>

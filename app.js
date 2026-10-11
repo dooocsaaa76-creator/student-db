@@ -453,7 +453,9 @@ const rMode = () => document.querySelector('input[name=rMode]:checked').value;
 //  · 업로드 DB에 이미 있는 학생(이름+연락처)은 그 행에 '설명회'·'신청일'만 붙임
 //  · 여러 설명회에 신청한 사람은 1건으로 합치고 설명회 이름을 모아서 표시 (가장 최근 신청 기준)
 let EXT_ALL = [], extView = [];
-const LEAD_COLS = ['이름','학교','학년','학부모 연락처','상태','신청일','설명회'];
+const LEAD_COLS = ['이름','학교','학년','학부모 연락처','신청일','설명회'];
+// 표·다운로드에서 쓰지 않는 열 (업로드할 때도 가져오지 않음)
+const DROP_COLS = new Set(['상태','brch_schl_type','brch_name']);
 function setExternal(d){ S.external = {cols:d.cols||[], rows:d.rows||[]};
   // 저장된 지역도 불러올 때 다시 계산 (이전 규칙으로 저장된 '강남구', '이번' 같은 값 보정). 지역을 직접 지정한 행(시도/시군구 칸)은 그대로 반영됨
   S.external.rows.forEach(r => { r._region = regionOf(r); delete r._rg; }); S.leads = d.leads||[]; S.leadsMeta = d.leadsMeta||null; S.leadEdits = d.leadEdits||{}; rebuildExt(); }
@@ -529,7 +531,7 @@ function extCols(){
   const cols = S.external.cols.length ? [...S.external.cols] : (S.leads.length ? [...LEAD_COLS] : []);
   if (S.leads.length) ['신청일','설명회'].forEach(c => { if (!cols.includes(c)) cols.push(c); });
   if (!cols.includes('메모') && EXT_ALL.some(r => r['메모'])) cols.push('메모');
-  return cols;
+  return cols.filter(c => !DROP_COLS.has(c));
 }
 
 // 외부생 DB는 용량이 커서 외부생 탭을 처음 열 때 불러옴
@@ -675,7 +677,7 @@ async function applyExtUpload(){
   const P = extPending, plan = planExt();
   if (plan.replace && S.external.rows.length && !confirm(`기존 외부생 DB ${S.external.rows.length.toLocaleString()}건을 모두 지우고 교체할까요?`)) return;
   const cols = plan.replace ? [] : [...S.external.cols];
-  P.parsed.forEach((p,i) => { if (P.opt[i].on) p.cols.forEach(c => { if (!cols.includes(c)) cols.push(c); }); });
+  P.parsed.forEach((p,i) => { if (P.opt[i].on) p.cols.forEach(c => { if (!cols.includes(c) && !DROP_COLS.has(c)) cols.push(c); }); });
   if (plan.newRows.some(r => r['시도']) && !cols.includes('시도')) cols.push('시도');
   if (plan.newRows.some(r => r['시군구']) && !cols.includes('시군구')) cols.push('시군구');
   cols.sort((a,b) => { const ia = EXT_ORDER.indexOf(a), ib = EXT_ORDER.indexOf(b); return (ia<0?99:ia) - (ib<0?99:ib); });
@@ -766,6 +768,49 @@ function renderExternal(){
   $('#eRegions').classList.toggle('disabled', rMode()==='all');
   renderExternalResult();
 }
+/* ---------- 결과 표: 열 선택 · 정렬 ---------- */
+// 표시할 열: '현재 학년', '지역(인식)' + 데이터 열. 숨긴 열은 이 PC 브라우저에 기억
+const VCOL_GRADE = '현재 학년', VCOL_REGION = '지역(인식)';
+const allViewCols = () => [VCOL_GRADE, VCOL_REGION, ...extCols()];
+let hiddenCols = new Set();
+try { hiddenCols = new Set(JSON.parse(localStorage.getItem('extHiddenCols') || '[]')); } catch(e) {}
+const saveHidden = () => { try { localStorage.setItem('extHiddenCols', JSON.stringify([...hiddenCols])); } catch(e) {} };
+const viewCols = () => allViewCols().filter(c => !hiddenCols.has(c));
+const cellVal = (r, c) => c === VCOL_GRADE ? extGradeKey(r) : c === VCOL_REGION ? (r._region ? r._region + (r._rg ? ' (학교 추정)' : '') : '') : (r[c] ?? '');
+// 정렬: 처음엔 현재 학년 → 이름. 열 제목 클릭으로 바꿈 (같은 열 다시 클릭하면 반대 방향)
+let extSort = {col: VCOL_GRADE, dir: 1};
+function sortExt(list){
+  const {col, dir} = extSort;
+  const key = col === VCOL_GRADE ? (r => extLevel(r) ?? 999) : col === VCOL_REGION ? (r => r._region || '\uffff') : (r => String(r[col] ?? '') || '\uffff');
+  const num = col === VCOL_GRADE || (col === 'ID' && list.every(r => !r['ID'] || /^\d+$/.test(r['ID'])));
+  return list.slice().sort((a, b) => {
+    const x = key(a), y = key(b);
+    let d = num && col !== VCOL_REGION ? ((col === 'ID' ? +x || Infinity : x) - (col === 'ID' ? +y || Infinity : y)) : ko(x, y);
+    if (!d && col !== '이름') d = ko(a['이름'], b['이름']) * dir;   // 같으면 이름 순
+    return d * dir;
+  });
+}
+function toggleColPanel(){
+  const p = $('#eColPanel');
+  if (p.style.display === 'block') { p.style.display = 'none'; return; }
+  p.innerHTML = `<div class="row" style="margin-bottom:6px"><b>표시할 열</b><button class="btn sm" data-colall="1">전체 표시</button><button class="btn sm" data-colall="0">전체 숨김</button></div>`
+    + allViewCols().map(c => `<label class="chip ${hiddenCols.has(c)?'':'on'}"><input type="checkbox" data-vcol="${esc(c)}" ${hiddenCols.has(c)?'':'checked'}>${esc(colLabel(c))}</label>`).join('');
+  p.style.display = 'block';
+}
+$('#eColPanel').addEventListener('change', e => {
+  const c = e.target.dataset && e.target.dataset.vcol; if (c == null) return;
+  e.stopPropagation();
+  e.target.checked ? hiddenCols.delete(c) : hiddenCols.add(c);
+  e.target.parentElement.classList.toggle('on', e.target.checked);
+  saveHidden(); renderExternalResult();
+});
+$('#eColPanel').addEventListener('click', e => {
+  const a = e.target.dataset && e.target.dataset.colall; if (a == null) return;
+  hiddenCols = a === '1' ? new Set() : new Set(allViewCols().filter(c => c !== '이름'));
+  saveHidden(); $('#eColPanel').style.display = 'none'; toggleColPanel(); renderExternalResult();
+});
+document.addEventListener('click', e => { if (!e.target.closest('#eColPanel') && !e.target.closest('#eColBtn')) $('#eColPanel').style.display = 'none'; });
+
 function renderExternalResult(){
   const list = filteredExternal(), mode = rMode();
   const boxes = [...document.querySelectorAll('[data-grade]')], gSel = boxes.filter(c=>c.checked).map(c=>c.dataset.grade);
@@ -775,11 +820,15 @@ function renderExternalResult(){
     + (mode==='all' ? '전체' : mode==='include' ? `${rLbl.join(', ')||'선택 없음'} 만` : `${rLbl.join(', ')||'없음'} 제외`)
     + (list.optOut ? ` · 수신거부 ${list.optOut}건 제외` : '') + (list.dupPhone ? ` · 같은 연락처 ${list.dupPhone}건 제외` : '')
     + (list.length>200?' · 미리보기는 200건까지 표시':'');
-  const cols = extCols();
-  extView = list.slice(0,200);
-  $('#eTable').innerHTML = cols.length ? `<thead><tr><th></th><th>현재 학년</th><th>지역(인식)</th>${cols.map(c=>`<th>${esc(colLabel(c))}</th>`).join('')}</tr></thead><tbody>`
+  const cols = viewCols();
+  extView = sortExt(list).slice(0,200);
+  const arrow = c => extSort.col === c ? (extSort.dir > 0 ? ' ▲' : ' ▼') : '';
+  const td = (r, c) => c === VCOL_GRADE ? `<td><span class="tag">${esc(extGradeKey(r))}</span></td>`
+    : c === VCOL_REGION ? `<td>${esc(r._region)}${r._rg ? ' <span class="muted" title="학교 이름으로 추정한 지역">(학교)</span>' : ''}</td>`
+    : `<td>${esc(r[c])}</td>`;
+  $('#eTable').innerHTML = allViewCols().length > 2 ? `<thead><tr><th></th>${cols.map(c=>`<th class="sortable" data-sort="${esc(c)}" title="클릭해서 정렬">${esc(colLabel(c))}${arrow(c)}</th>`).join('')}</tr></thead><tbody>`
     + extView.map((r,i)=>{ const ph = rowPhone(r);
-        return `<tr><td><button class="btn sm" data-edit="${i}">수정</button> ${ph?`<button class="btn sm" data-optout="${esc(ph)}" data-oname="${esc(r['이름']||'')}">수신거부</button>`:''}${r._edited?' <span class="tag auto">수정됨</span>':''}</td><td><span class="tag">${esc(extGradeKey(r))}</span></td><td>${esc(r._region)}${r._rg ? ' <span class="muted" title="학교 이름으로 추정한 지역">(학교)</span>' : ''}</td>${cols.map(c=>`<td>${esc(r[c])}</td>`).join('')}</tr>`; }).join('') + '</tbody>' : '';
+        return `<tr><td><button class="btn sm" data-edit="${i}">수정</button> ${ph?`<button class="btn sm" data-optout="${esc(ph)}" data-oname="${esc(r['이름']||'')}">수신거부</button>`:''}${r._edited?' <span class="tag auto">수정됨</span>':''}</td>${cols.map(c => td(r, c)).join('')}</tr>`; }).join('') + '</tbody>' : '';
 }
 document.addEventListener('change', e => {
   const el = e.target;
@@ -802,6 +851,8 @@ $('#ePresets').addEventListener('click', e => {
   renderExternal();
 });
 $('#eTable').addEventListener('click', e => {
+  const th = e.target.closest('th[data-sort]');
+  if (th) { const c = th.dataset.sort; extSort = extSort.col === c ? {col:c, dir:-extSort.dir} : {col:c, dir:1}; return renderExternalResult(); }
   if (e.target.dataset && e.target.dataset.edit != null) return openExtEdit(extView[+e.target.dataset.edit]);
   const ph = e.target.dataset && e.target.dataset.optout; if (!ph) return;
   addOptOut([{phone:ph, name:e.target.dataset.oname}], '외부생 DB에서 등록');
@@ -851,8 +902,8 @@ function openExtEdit(r){
   // 업로드한 외부생: 모든 열 수정 + 삭제
   const base = r._base || r, g0 = gradeNow(base);
   if (!base._chunk) return alert('방금 업로드한 데이터입니다. 새로고침 후 다시 시도해 주세요.');
-  const std = ['이름','학교','학부모 연락처','상태','시도','시군구','동','주소','메모'];
-  const extra = S.external.cols.filter(c => !std.includes(c) && c !== '학년');
+  const std = ['이름','학교','학부모 연락처','시도','시군구','동','주소','메모'];
+  const extra = S.external.cols.filter(c => !std.includes(c) && c !== '학년' && !DROP_COLS.has(c));
   modal(`<h3>외부생 정보 수정</h3>
     <p class="muted">${esc(base['이름'])}${base['ID'] ? ' · ID ' + esc(base['ID']) : ''}${r['설명회'] ? ' · 설명회: ' + esc(r['설명회']) : ''}</p>
     <div class="efgrid">${field('이름','이름', base['이름'])}${field('__grade','현재 학년', g0, '예) 중2')}${std.slice(1).map(c => field(c, c, base[c])).join('')}${extra.map(c => field(c, c, base[c])).join('')}</div>
@@ -936,12 +987,13 @@ function gradeBand(p){ document.querySelectorAll('[data-grade]').forEach(c => c.
 function downloadExternal(){
   const list = filteredExternal();
   if (!list.length) return alert('조건에 맞는 DB가 없습니다.');
-  const cols = extCols();
-  const aoa = [['현재 학년', '지역', ...cols.map(colLabel)]];
-  list.forEach(r => aoa.push([extGradeKey(r), r._region ? r._region + (r._rg ? ' (학교 추정)' : '') : '', ...cols.map(c=>r[c] ?? '')]));
+  const cols = viewCols();
+  if (!cols.length) return alert('표시할 열을 하나 이상 선택해 주세요.');
+  const aoa = [cols.map(c => c === VCOL_REGION ? '지역' : colLabel(c))];
+  sortExt(list).forEach(r => aoa.push(cols.map(c => cellVal(r, c))));
   const boxes = [...document.querySelectorAll('[data-grade]')], gSel = boxes.filter(c=>c.checked).map(c=>c.dataset.grade);
   const tag = gSel.length === boxes.length ? '전체학년' : gSel.slice(0,4).join(',') + (gSel.length>4?'외':'');
-  writeXlsx(aoa, '외부생DB', `외부생DB_${tag}_${ymd()}_${list.length}건.xlsx`, [10, 18, ...cols.map(c=>c==='주소'?50:14)]);
+  writeXlsx(aoa, '외부생DB', `외부생DB_${tag}_${ymd()}_${list.length}건.xlsx`, cols.map(c => c === '주소' ? 50 : c === VCOL_REGION ? 18 : c === VCOL_GRADE ? 10 : 14));
 }
 
 /* ================= 수신거부 ================= */
