@@ -486,6 +486,8 @@ function rebuildExt(){
   EXT_ALL = [...rows, ...leads];
   if (regionIsDefault) regionSel = defaultRegionSel();
 }
+// '설명회' 칸에는 설명회·입학고사 신청 내역이 함께 들어 있어 화면·다운로드에서는 '신청 내역'으로 표시
+const colLabel = c => c === '설명회' ? '신청 내역' : c;
 function extCols(){
   const cols = S.external.cols.length ? [...S.external.cols] : (S.leads.length ? [...LEAD_COLS] : []);
   if (S.leads.length) ['신청일','설명회'].forEach(c => { if (!cols.includes(c)) cols.push(c); });
@@ -695,7 +697,7 @@ function renderExternal(){
   const gCount = {}; rows.forEach(r => { const k = extGradeKey(r); gCount[k] = (gCount[k]||0)+1; });
   const rCount = {}; rows.forEach(r => { const k = r._region || '__none'; rCount[k] = (rCount[k]||0)+1; });
   const withRegion = rows.length - (rCount.__none||0);
-  $('#eStats').innerHTML = !extLoaded ? '' : `<div class="stat"><b>${rows.length.toLocaleString()}</b>건 외부생 DB</div><div class="stat"><b>${withRegion.toLocaleString()}</b>건 지역 입력됨</div>${gCount['미분류']?`<div class="stat warn"><b>${gCount['미분류']}</b>건 학년 미분류</div>`:''}<div class="stat"><b>${S.leads.length.toLocaleString()}</b>건 설명회 신청 <span class="muted">(구글시트 자동 연동${S.leadsMeta?.lastSync ? ' · ' + new Date(S.leadsMeta.lastSync).toLocaleString('ko-KR') : ' · 아직 연동 전'})</span></div><div class="stat"><b>${Object.keys(S.optOut).length}</b>건 수신거부 번호 (자동 제외)</div>`;
+  $('#eStats').innerHTML = !extLoaded ? '' : `<div class="stat"><b>${rows.length.toLocaleString()}</b>건 외부생 DB</div><div class="stat"><b>${withRegion.toLocaleString()}</b>건 지역 입력됨</div>${gCount['미분류']?`<div class="stat warn"><b>${gCount['미분류']}</b>건 학년 미분류</div>`:''}<div class="stat"><b>${S.leads.length.toLocaleString()}</b>건 설명회·입학고사 신청 <span class="muted">(구글시트 자동 연동${S.leadsMeta?.lastSync ? ' · ' + new Date(S.leadsMeta.lastSync).toLocaleString('ko-KR') : ' · 아직 연동 전'})</span></div><div class="stat"><b>${Object.keys(S.optOut).length}</b>건 수신거부 번호 (자동 제외)</div>`;
   // 학년
   const gKeys = Object.keys(gCount).sort((a,b)=>(a==='미분류')-(b==='미분류') || (parseGrade(a)??0)-(parseGrade(b)??0));
   $('#eGrades').innerHTML = gKeys.length ? gKeys.map(k=>`<label class="chip ${gradeOff.has(k)?'':'on'}"><input type="checkbox" data-grade="${esc(k)}" ${gradeOff.has(k)?'':'checked'}>${esc(k)} <small>${gCount[k].toLocaleString()}</small></label>`).join('') : '<span class="muted">데이터가 없습니다.</span>';
@@ -734,7 +736,7 @@ function renderExternalResult(){
     + (list.length>200?' · 미리보기는 200건까지 표시':'');
   const cols = extCols();
   extView = list.slice(0,200);
-  $('#eTable').innerHTML = cols.length ? `<thead><tr><th></th><th>현재 학년</th><th>지역(인식)</th>${cols.map(c=>`<th>${esc(c)}</th>`).join('')}</tr></thead><tbody>`
+  $('#eTable').innerHTML = cols.length ? `<thead><tr><th></th><th>현재 학년</th><th>지역(인식)</th>${cols.map(c=>`<th>${esc(colLabel(c))}</th>`).join('')}</tr></thead><tbody>`
     + extView.map((r,i)=>{ const ph = rowPhone(r);
         return `<tr><td><button class="btn sm" data-edit="${i}">수정</button> ${ph?`<button class="btn sm" data-optout="${esc(ph)}" data-oname="${esc(r['이름']||'')}">수신거부</button>`:''}${r._edited?' <span class="tag auto">수정됨</span>':''}</td><td><span class="tag">${esc(extGradeKey(r))}</span></td><td>${esc(r._region)}</td>${cols.map(c=>`<td>${esc(r[c])}</td>`).join('')}</tr>`; }).join('') + '</tbody>' : '';
 }
@@ -838,7 +840,7 @@ function downloadExternal(){
   const list = filteredExternal();
   if (!list.length) return alert('조건에 맞는 DB가 없습니다.');
   const cols = extCols();
-  const aoa = [['현재 학년', ...cols]];
+  const aoa = [['현재 학년', ...cols.map(colLabel)]];
   list.forEach(r => aoa.push([extGradeKey(r), ...cols.map(c=>r[c] ?? '')]));
   const boxes = [...document.querySelectorAll('[data-grade]')], gSel = boxes.filter(c=>c.checked).map(c=>c.dataset.grade);
   const tag = gSel.length === boxes.length ? '전체학년' : gSel.slice(0,4).join(',') + (gSel.length>4?'외':'');
