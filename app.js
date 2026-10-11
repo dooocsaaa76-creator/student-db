@@ -401,13 +401,19 @@ function renderWithdrawnStatsOnly(){ const all=Object.values(S.withdrawn), a=all
 
 /* ================= 외부생 DB ================= */
 const SIDO = {'서울특별시':'서울','서울시':'서울','서울':'서울','부산광역시':'부산','부산':'부산','대구광역시':'대구','대구':'대구','인천광역시':'인천','인천':'인천','광주광역시':'광주','광주':'광주','대전광역시':'대전','대전':'대전','울산광역시':'울산','울산':'울산','세종특별자치시':'세종','세종시':'세종','세종':'세종','경기도':'경기','경기':'경기','강원도':'강원','강원특별자치도':'강원','강원':'강원','충청북도':'충북','충북':'충북','충청남도':'충남','충남':'충남','전라북도':'전북','전북특별자치도':'전북','전북':'전북','전라남도':'전남','전남':'전남','경상북도':'경북','경북':'경북','경상남도':'경남','경남':'경남','제주특별자치도':'제주','제주도':'제주','제주':'제주'};
+// 구 이름만 있을 때 시도를 붙이기 위한 목록 (서울 25개 구, 경기 시·군)
+const SEOUL_GU = ['종로구','중구','용산구','성동구','광진구','동대문구','중랑구','성북구','강북구','도봉구','노원구','은평구','서대문구','마포구','양천구','강서구','구로구','금천구','영등포구','동작구','관악구','서초구','강남구','송파구','강동구'];
+const GG_CITY = ['수원시','성남시','의정부시','안양시','부천시','광명시','평택시','동두천시','안산시','고양시','과천시','구리시','남양주시','오산시','시흥시','군포시','의왕시','하남시','용인시','파주시','이천시','안성시','김포시','화성시','광주시','양주시','포천시','여주시','연천군','가평군','양평군'];
+// '서울특별시 서초구 …' / '서울 서초구' / '서초구' → '서울 서초구'. 시군구까지 알 수 없으면 '' (지역 미입력)
 function parseRegion(v){
   const t = String(v ?? '').trim().split(/[\s,]+/).filter(Boolean);
   if (!t.length) return '';
   const sido = SIDO[t[0]];
-  if (!sido) return t[0];                       // 시도 없이 '서초구' 등만 있는 경우
-  if (sido === '세종' || !t[1] || !/(시|군|구)$/.test(t[1])) return sido;
-  return sido + ' ' + t[1];
+  if (sido === '세종') return '세종';
+  if (sido) return t[1] && /(시|군|구)$/.test(t[1]) ? sido + ' ' + t[1] : '';
+  if (SEOUL_GU.includes(t[0])) return '서울 ' + t[0];
+  if (GG_CITY.includes(t[0])) return '경기 ' + t[0];
+  return '';
 }
 // 권역 빠른 선택 (MG 권역표 기준). 수원시·안양시는 시 전체
 const REGION_PRESETS = {
@@ -448,7 +454,9 @@ const rMode = () => document.querySelector('input[name=rMode]:checked').value;
 //  · 여러 설명회에 신청한 사람은 1건으로 합치고 설명회 이름을 모아서 표시 (가장 최근 신청 기준)
 let EXT_ALL = [], extView = [];
 const LEAD_COLS = ['이름','학교','학년','학부모 연락처','상태','신청일','설명회'];
-function setExternal(d){ S.external = {cols:d.cols||[], rows:d.rows||[]}; S.leads = d.leads||[]; S.leadsMeta = d.leadsMeta||null; S.leadEdits = d.leadEdits||{}; rebuildExt(); }
+function setExternal(d){ S.external = {cols:d.cols||[], rows:d.rows||[]};
+  // 저장된 지역도 불러올 때 다시 계산 (이전 규칙으로 저장된 '강남구', '이번' 같은 값 보정). 지역을 직접 지정한 행(시도/시군구 칸)은 그대로 반영됨
+  S.external.rows.forEach(r => { r._region = regionOf(r) || (String(r._region||'').includes(' ') ? r._region : ''); }); S.leads = d.leads||[]; S.leadsMeta = d.leadsMeta||null; S.leadEdits = d.leadEdits||{}; rebuildExt(); }
 const leadId = r => 'L_' + norm(r['이름']) + '_' + (r._ph || rowPhone(r));
 function rebuildExt(){
   const merged = {};
@@ -497,9 +505,7 @@ async function ensureExternal(){
 
 // 시도+시군구 → '서울 서초구'. 시도/구 칸이 비면 주소에서
 function regionOf(r){
-  let g = (r['시도'] || r['시군구']) ? parseRegion(`${r['시도']||''} ${r['시군구']||''}`) : '';
-  if (!g || !g.includes(' ')) g = parseRegion(r['주소']) || g;
-  return g;
+  return ((r['시도'] || r['시군구']) ? parseRegion(`${r['시도']||''} ${r['시군구']||''}`) : '') || parseRegion(r['주소']);
 }
 
 // 여러 시트 업로드 + 학년 갱신 (externalUpload 대체)
@@ -708,10 +714,11 @@ function renderExternal(){
   for (const sd of sidos) {
     const ks = groups[sd].sort((a,b)=>rCount[b]-rCount[a]);
     const all = ks.every(k=>regionSel.has(k));
-    html += `<div class="sido"><div class="sido-h"><input type="checkbox" data-sido="${esc(sd)}" ${all?'checked':''}> ${esc(sd)} 전체 <small class="muted">${tot(sd).toLocaleString()}</small></div><div class="chips">`
-      + ks.map(k=>`<label class="chip ${regionSel.has(k)?'on':''}"><input type="checkbox" data-region="${esc(k)}" ${regionSel.has(k)?'checked':''}>${esc(k===sd?sd+' (시군구 미상)':k.slice(sd.length+1))} <small>${rCount[k].toLocaleString()}</small></label>`).join('') + '</div></div>';
+    // 시도별로 한 줄: [☐ 서울 전체] 칩 칩 …
+    html += `<div class="chips sido"><label class="chip sido-h ${all?'on':''}"><input type="checkbox" data-sido="${esc(sd)}" ${all?'checked':''}>${esc(sd)} 전체 <small>${tot(sd).toLocaleString()}</small></label>`
+      + ks.map(k=>`<label class="chip ${regionSel.has(k)?'on':''}"><input type="checkbox" data-region="${esc(k)}" ${regionSel.has(k)?'checked':''}>${esc(k===sd?sd:k.slice(sd.length+1))} <small>${rCount[k].toLocaleString()}</small></label>`).join('') + '</div>';
   }
-  if (rCount.__none) html += `<div class="sido"><div class="chips"><label class="chip ${regionSel.has('__none')?'on':''}"><input type="checkbox" data-region="__none" ${regionSel.has('__none')?'checked':''}>지역 미입력 <small>${rCount.__none.toLocaleString()}</small></label></div></div>`;
+  if (rCount.__none) html += `<div class="chips sido"><label class="chip ${regionSel.has('__none')?'on':''}"><input type="checkbox" data-region="__none" ${regionSel.has('__none')?'checked':''}>지역 미입력 <small>${rCount.__none.toLocaleString()}</small></label></div>`;
   $('#eRegions').innerHTML = html;
   $('#eRegions').classList.toggle('disabled', rMode()==='all');
   renderExternalResult();

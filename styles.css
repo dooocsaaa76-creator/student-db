@@ -42,13 +42,14 @@ td input.memo{width:180px}
 td.empty input{background:var(--warn-weak)}
 .tag{display:inline-block;padding:1px 7px;border-radius:10px;font-size:12px;background:var(--bg)}
 .tag.auto{background:var(--ok-weak);color:var(--ok)}
-.chips{display:flex;flex-wrap:wrap;gap:6px}
-.chip{display:inline-flex;align-items:center;gap:5px;border:1px solid var(--line);border-radius:16px;padding:4px 10px;cursor:pointer;user-select:none;background:#fff}
+.chips{display:flex;flex-wrap:wrap;gap:5px}
+.chip{display:inline-flex;align-items:center;gap:4px;border:1px solid var(--line);border-radius:14px;padding:2px 8px;font-size:13px;cursor:pointer;user-select:none;background:#fff}
 .chip input{margin:0}
 .chip.on{border-color:var(--accent);background:var(--accent-weak)}
 .chip small{color:var(--muted)}
-.sido{margin-bottom:10px}
-.sido-h{font-weight:bold;margin-bottom:6px;display:flex;align-items:center;gap:6px}
+.sido{margin-bottom:6px}
+.chip.sido-h{font-weight:bold;background:var(--bg)}
+.chip.sido-h.on{background:var(--accent-weak)}
 .disabled{opacity:.4;pointer-events:none}
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
 @media(max-width:900px){.grid2{grid-template-columns:1fr}}
