@@ -474,10 +474,21 @@ function rebuildExt(){
     return {...r, '설명회': l['설명회'], '신청일': l['신청일'], _base: r};
   });
   // 설명회 신청자 웹 보정값 (구글시트 원본은 그대로, 동기화돼도 유지)
+  // 재원생·퇴원생과 이름+연락처가 같은 신청자 → 기존 DB(재원·퇴원) 학년을 따름
+  const stIdx = new Map();
+  [['재원', S.active], ['퇴원', S.withdrawn]].forEach(([kind, obj]) => Object.values(obj).forEach(st =>
+    [st.parentPhone, st.studentPhone].map(digits).filter(Boolean).forEach(d => stIdx.set(norm(st.name) + '|' + d, {kind, st}))));
   const leads = Object.values(merged).map(l => {
-    const e = (S.leadEdits || {})[leadId(l)];
-    if (!e) return l;
-    const x = {...l, _edited:true};
+    const e = (S.leadEdits || {})[leadId(l)], hit = stIdx.get(norm(l['이름']) + '|' + l._ph);
+    if (!e && !hit) return l;
+    const x = {...l};
+    if (hit) {
+      x._inDB = hit.kind;
+      if (hit.st.gLevel != null) { x['학년'] = `${curGradeOf(hit.st)} (${hit.kind}생 DB)`; x._lv = hit.st.gLevel; x._yr = hit.st.gYear; }
+      if (!x['학교'] && hit.st.school) x['학교'] = hit.st.school;
+    }
+    if (!e) return x;
+    x._edited = true;
     if (e.grade) { x['학년'] = e.grade + ' (웹 수정)'; x._lv = e._lv; x._yr = e._yr; }
     if (e.school) x['학교'] = e.school;
     if (e.memo) x['메모'] = e.memo;
@@ -701,11 +712,14 @@ async function clearExternal(){
 function filteredExternal(){
   const mode = rMode(), dedupe = $('#eDedupe').checked;
   let optOut = 0, dupPhone = 0; const phones = new Set();
-  const src = $("#eSource").value, q = $('#eSearch').value.trim(), qd = /\d{4}/.test(q) ? q.replace(/\D/g,'') : '';
+  // 검색: 쉼표로 여러 단어 → 하나라도 맞으면 표시 (예: '26년 1월, 26년 2월'). 숫자 4자리 이상이면 연락처 검색
+  const src = $("#eSource").value, terms = $('#eSearch').value.split(',').map(t => t.trim()).filter(Boolean);
+  const hitTerm = (r, q) => /\d{4}/.test(q) && !/[년월]/.test(q) ? rowPhone(r).includes(q.replace(/\D/g,'')) : ['이름','학교','주소','메모','설명회'].some(c => String(r[c]||'').replace(/\s/g,'').includes(q.replace(/\s/g,'')));
   const list = EXT_ALL.filter(r => {
-    if (q && !(qd ? rowPhone(r).includes(qd) : ['이름','학교','주소','메모','설명회'].some(c => String(r[c]||'').includes(q)))) return false;
+    if (terms.length && !terms.some(q => hitTerm(r, q))) return false;
     if (src==="upload" && r._lead) return false;
     if (src==="lead" && !r["설명회"]) return false;
+    if (src==="leadNew" && !(r._lead && !r._inDB)) return false;     // 신청자 중 외부생·재원·퇴원 DB 어디에도 없는 사람
     if (gradeOff.has(extGradeKey(r))) return false;
     const rk = r._region || '__none';
     if (mode==='include' && !regionSel.has(rk)) return false;
