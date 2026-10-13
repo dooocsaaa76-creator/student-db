@@ -31,7 +31,7 @@ async function loadAll(){
     S.logs = d.logs; S.optOut = d.optOut || {};
     if (extLoaded) setExternal(await Store.loadExternal());
     S.settings = Object.assign({extPromote:true}, d.meta.settings);
-    S.lastRoster = d.meta.lastRoster || null; S.lastBackup = d.meta.lastBackup || null;
+    S.lastRoster = d.meta.lastRoster || null; S.lastBackup = d.meta.lastBackup || null; S.schoolRegions = d.meta.schoolRegions || {};
     renderAll(); setStatus('최신 데이터 ' + new Date().toLocaleTimeString('ko-KR'));
   } catch(e){ console.error(e); alert('데이터를 불러오지 못했습니다.\n' + e.message); }
   finally { busy(''); }
@@ -281,14 +281,14 @@ function exportStudents(kind){
   const W = kind==='withdrawn';
   const list = W ? filteredWithdrawn() : filteredActive();
   if (!list.length) return alert('내보낼 학생이 없습니다.');
-  const head = W ? ['ID','이름','현재 학년(자동)','퇴원 당시 학년','학교','클래스','교사','학부모 연락처','학생 연락처','메모','퇴원일']
-                 : ['ID','이름','학년','학교','클래스','교사','학부모 연락처','학생 연락처','메모'];
+  const head = W ? ['ID','이름','현재 학년(자동)','퇴원 당시 학년','학교','지역','클래스','교사','학부모 연락처','학생 연락처','메모','퇴원 시기']
+                 : ['ID','이름','학년','학교','지역','클래스','교사','학부모 연락처','학생 연락처','메모'];
   const aoa = [head];
   list.forEach(r => aoa.push(W
-    ? [r.id, r.name, curGradeOf(r), r.withdrawGrade||r.grade, r.school, clsText(r), tchText(r), r.parentPhone||'', r.studentPhone||'', r.memo||'', r.withdrawnAt||'']
-    : [r.id, r.name, r.grade, r.school, clsText(r), tchText(r), r.parentPhone||'', r.studentPhone||'', r.memo||'']));
+    ? [r.id, r.name, curGradeOf(r), r.withdrawGrade||r.grade, r.school, regionText(r), clsText(r), tchText(r), r.parentPhone||'', r.studentPhone||'', r.memo||'', (r.withdrawnAt||'').slice(0,7)]
+    : [r.id, r.name, r.grade, r.school, regionText(r), clsText(r), tchText(r), r.parentPhone||'', r.studentPhone||'', r.memo||'']));
   writeXlsx(aoa, W?'퇴원생':'재원생', `${W?'퇴원생':'재원생'}_${ymd()}_${list.length}명.xlsx`,
-    W ? [11,9,10,10,16,34,14,16,16,20,12] : [11,9,7,16,34,14,16,16,20]);
+    W ? [11,9,10,10,16,18,34,14,16,16,20,10] : [11,9,7,16,18,34,14,16,16,20]);
 }
 
 /* ================= 재원생 / 퇴원생 화면 ================= */
@@ -304,6 +304,13 @@ function fillSelect(el, label, values){
 const uniq = arr => [...new Set(arr.filter(Boolean))];
 const sortGrades = arr => arr.sort((a,b)=>(parseGrade(a)??99)-(parseGrade(b)??99) || ko(a,b));
 const clsCell = r => `<td class="cls">${(r.classes||[]).map(c=>`<div class="${c.status?'hold':''}">${esc(c.name)}${c.status?` <span class="tag">${esc(c.status)}</span>`:''}</div>`).join('')}</td>`;
+const regionCell = (r, kind) => { const {g, guess} = studentRegion(r);
+  return `<td><input class="region" list="regionList" data-k="${kind}" data-id="${esc(r.id)}" data-f="region" value="${esc(r.region||'')}" placeholder="${esc(g && guess ? g + ' (학교)' : '지역 입력')}"></td>`; };
+function fillRegionList(){
+  const regs = uniq([...Object.values(S.schoolRegions || {}), ...SEOUL_GU.map(g => '서울 ' + g), ...GG_CITY.map(g => '경기 ' + g)]).sort(ko);
+  $('#regionList').innerHTML = regs.map(x => `<option value="${esc(x)}">`).join('');
+}
+const regionText = r => { const {g, guess} = studentRegion(r); return g ? g + (guess ? ' (학교 추정)' : '') : ''; };
 const contactCells = (r, kind) => ['parentPhone','studentPhone'].map(f =>
   `<td class="${r[f]?'':'empty'}"><input data-k="${kind}" data-id="${esc(r.id)}" data-f="${f}" value="${esc(r[f]||'')}" placeholder="입력"></td>`).join('')
   + `<td><input class="memo" data-k="${kind}" data-id="${esc(r.id)}" data-f="memo" value="${esc(r.memo||'')}"></td>`;
@@ -324,9 +331,10 @@ function renderActive(){
   fillSelect($('#aGrade'),'학년', sortGrades(uniq(all.map(r=>r.grade))));
   const list = filteredActive();
   $('#aCount').textContent = `${list.length}명 표시`;
-  $('#aTable').innerHTML = `<thead><tr><th>ID</th><th>이름</th><th>학년</th><th>학교</th><th>클래스</th><th>교사</th><th>학부모 연락처</th><th>학생 연락처</th><th>메모</th></tr></thead><tbody>`
-    + (list.length ? list.map(r=>`<tr><td>${esc(r.id)}</td><td><b>${esc(r.name)}</b>${optBadge(r)}</td><td>${esc(r.grade)}</td><td>${esc(r.school)}</td>${clsCell(r)}<td>${esc(tchText(r))}</td>${contactCells(r,'active')}</tr>`).join('')
-       : `<tr><td colspan="9" class="muted" style="text-align:center;padding:30px">${all.length?'조건에 맞는 학생이 없습니다.':'"배치생 리스트 업로드" 버튼으로 엑셀 파일을 올려주세요.'}</td></tr>`) + '</tbody>';
+  fillRegionList();
+  $('#aTable').innerHTML = `<thead><tr><th>ID</th><th>이름</th><th>학년</th><th>학교</th><th>지역</th><th>클래스</th><th>교사</th><th>학부모 연락처</th><th>학생 연락처</th><th>메모</th></tr></thead><tbody>`
+    + (list.length ? list.map(r=>`<tr><td>${esc(r.id)}</td><td><b>${esc(r.name)}</b>${optBadge(r)}</td><td>${esc(r.grade)}</td><td>${esc(r.school)}</td>${regionCell(r,'active')}${clsCell(r)}<td>${esc(tchText(r))}</td>${contactCells(r,'active')}</tr>`).join('')
+       : `<tr><td colspan="10" class="muted" style="text-align:center;padding:30px">${all.length?'조건에 맞는 학생이 없습니다.':'"배치생 리스트 업로드" 버튼으로 엑셀 파일을 올려주세요.'}</td></tr>`) + '</tbody>';
 }
 function filteredWithdrawn(){
   const q=$('#wSearch').value.trim().toLowerCase(), g=$('#wGrade').value, y=$('#wYear').value, m=$('#wMissing').checked, noOpt=$('#wNoOpt').checked;
@@ -342,10 +350,10 @@ function renderWithdrawn(){
   fillSelect($('#wYear'),'퇴원 연도', uniq(all.map(r=>(r.withdrawnAt||'').slice(0,4))).sort().reverse());
   const list = filteredWithdrawn();
   $('#wCount').textContent = `${list.length}명 표시`;
-  $('#wTable').innerHTML = `<thead><tr><th>ID</th><th>이름</th><th>현재 학년</th><th>퇴원 당시</th><th>학교</th><th>클래스</th><th>교사</th><th>학부모 연락처</th><th>학생 연락처</th><th>메모</th><th>퇴원일</th><th></th></tr></thead><tbody>`
+  $('#wTable').innerHTML = `<thead><tr><th>ID</th><th>이름</th><th>현재 학년</th><th>퇴원 당시</th><th>학교</th><th>지역</th><th>클래스</th><th>교사</th><th>학부모 연락처</th><th>학생 연락처</th><th>메모</th><th title="명단에서 빠진 배치생 리스트를 올린 달">퇴원 시기</th><th></th></tr></thead><tbody>`
     + (list.length ? list.map(r=>{ const cg = curGradeOf(r), auto = r.gLevel!=null && cg !== (r.withdrawGrade||r.grade);
-      return `<tr><td>${esc(r.id)}</td><td><b>${esc(r.name)}</b>${optBadge(r)}</td><td><span class="tag ${auto?'auto':''}" title="${r.gLevel==null?'학년 표기를 인식하지 못해 자동 진급되지 않습니다':''}">${esc(cg)}</span></td><td class="muted">${esc(r.withdrawGrade||r.grade)}</td><td>${esc(r.school)}</td>${clsCell(r)}<td>${esc(tchText(r))}</td>${contactCells(r,'withdrawn')}<td>${esc(r.withdrawnAt||'')}</td><td><button class="btn sm" data-wedit="${esc(r.id)}">수정</button> <button class="btn sm danger" data-del="${esc(r.id)}">삭제</button></td></tr>`; }).join('')
-       : `<tr><td colspan="12" class="muted" style="text-align:center;padding:30px">퇴원생이 없습니다. 새 배치생 리스트를 올렸을 때 명단에서 빠진 학생이 이곳으로 이동합니다.</td></tr>`) + '</tbody>';
+      return `<tr><td>${esc(r.id)}</td><td><b>${esc(r.name)}</b>${optBadge(r)}</td><td><span class="tag ${auto?'auto':''}" title="${r.gLevel==null?'학년 표기를 인식하지 못해 자동 진급되지 않습니다':''}">${esc(cg)}</span></td><td class="muted">${esc(r.withdrawGrade||r.grade)}</td><td>${esc(r.school)}</td>${regionCell(r,'withdrawn')}${clsCell(r)}<td>${esc(tchText(r))}</td>${contactCells(r,'withdrawn')}<td>${esc((r.withdrawnAt||'').slice(0,7))}</td><td><button class="btn sm" data-wedit="${esc(r.id)}">수정</button> <button class="btn sm danger" data-del="${esc(r.id)}">삭제</button></td></tr>`; }).join('')
+       : `<tr><td colspan="13" class="muted" style="text-align:center;padding:30px">퇴원생이 없습니다. 새 배치생 리스트를 올렸을 때 명단에서 빠진 학생이 이곳으로 이동합니다.</td></tr>`) + '</tbody>';
 }
 $('#wTable').addEventListener('click', async e => {
   if (e.target.dataset && e.target.dataset.wedit) return openWithdrawnEdit(e.target.dataset.wedit);
@@ -359,7 +367,7 @@ function openWithdrawnEdit(id){
   const r = S.withdrawn[id]; if (!r) return;
   const g0 = curGradeOf(r);
   modal(`<h3>퇴원생 정보 수정</h3>
-    <p class="muted">ID ${esc(id)} · 퇴원일 ${esc(r.withdrawnAt||'')} · 퇴원 당시 ${esc(r.withdrawGrade||'')}</p>
+    <p class="muted">ID ${esc(id)} · 퇴원 시기 ${esc((r.withdrawnAt||'').slice(0,7))} · 퇴원 당시 ${esc(r.withdrawGrade||'')}</p>
     <div class="efgrid">
       <label class="ef"><span>이름</span><input id="wfName" value="${esc(r.name)}"></label>
       <label class="ef"><span>학교</span><input id="wfSchool" value="${esc(r.school||'')}"></label>
@@ -382,13 +390,15 @@ function openWithdrawnEdit(id){
 document.addEventListener('change', async e => {
   const el = e.target; if (!el.dataset || !el.dataset.f || !el.dataset.k) return;
   const rec = S[el.dataset.k][el.dataset.id]; if (!rec) return;
-  const f = el.dataset.f, v = f==='memo' ? el.value.trim() : fmtPhone(el.value), old = rec[f] || '';
+  const f = el.dataset.f, old = rec[f] || '';
+  const v = f==='memo' ? el.value.trim() : f==='region' ? (el.value.trim() ? parseRegion(el.value) : '') : fmtPhone(el.value);
+  if (f==='region' && el.value.trim() && !v) { alert('지역을 인식할 수 없습니다. 예) 서울 서초구, 서초구, 경기 과천시'); el.value = old; return; }
   if (v === old) { el.value = old; return; }
-  if (!v && old && !confirm(`${rec.name} 학생의 ${f==='memo'?'메모':'연락처'}를 지울까요?`)) { el.value = old; return; }
+  if (!v && old && !confirm(`${rec.name} 학생의 ${f==='memo'?'메모':f==='region'?'지역':'연락처'}를 지울까요?`)) { el.value = old; return; }
   el.value = v; setStatus('저장 중…');
   try {
     await Store.updateStudent(rec.id, {[f]: v, updatedAt: today()});
-    rec[f] = v; el.parentElement.classList.toggle('empty', f!=='memo' && !v);
+    rec[f] = v; el.parentElement.classList.toggle('empty', f!=='memo' && f!=='region' && !v);
     setStatus('저장됨 ' + new Date().toLocaleTimeString('ko-KR'));
     (el.dataset.k==='active' ? renderActiveStatsOnly : renderWithdrawnStatsOnly)();
   } catch(err){ el.value = old; setStatus('⚠ 저장 실패'); alert('저장하지 못했습니다: ' + err.message); }
@@ -475,38 +485,65 @@ function rebuildExt(){
     latest['설명회'] = uniq([...String(m['설명회']||'').split(', '), r['설명회']]).join(', ');
     merged[k] = latest;
   }
-  const rows = S.external.rows.map(r => {
+  // 재원생·퇴원생 찾기: ID 또는 이름+연락처(학부모·학생)
+  const stById = new Map(), stByKey = new Map();
+  [['재원', S.active], ['퇴원', S.withdrawn]].forEach(([kind, obj]) => Object.values(obj).forEach(st => {
+    stById.set(String(st.id), {kind, st});
+    [st.parentPhone, st.studentPhone].map(digits).filter(Boolean).forEach(d => stByKey.set(norm(st.name) + '|' + d, {kind, st}));
+  }));
+  const findSt = r => (r['ID'] && stById.get(String(r['ID']))) || stByKey.get(norm(r['이름']) + '|' + rowPhone(r));
+  // 퇴원생과 같은 학생 → 퇴원생 정보(학년·ID·학생 연락처·학교·지역)로 맞춤
+  const wdUsed = new Set();
+  const asWithdrawn = (x, st) => {
+    wdUsed.add(st.id); x._wd = st.id; x._inDB = '퇴원';
+    if (st.gLevel != null) { x['학년'] = `${curGradeOf(st)} (퇴원생 DB)`; x._lv = st.gLevel; x._yr = st.gYear; }
+    if (!x['ID']) x['ID'] = st.id;
+    if (!x['학교'] && st.school) x['학교'] = st.school;
+    if (!x['학생 연락처'] && st.studentPhone) x['학생 연락처'] = st.studentPhone;
+    if (st.region) setRowRegion(x, st.region);
+    return x;
+  };
+  let activeHidden = 0;
+  const rows = [];
+  for (const r of S.external.rows) {
     const k = norm(r['이름']) + '|' + rowPhone(r), l = merged[k];
-    if (!l) return r;
-    delete merged[k];
-    return {...r, '설명회': l['설명회'], '신청일': l['신청일'], _base: r};
-  });
+    if (l) delete merged[k];
+    const hit = findSt(r);
+    if (hit && hit.kind === '재원') { activeHidden++; continue; }        // 재원생은 외부생 DB에서 제외
+    let x = l ? {...r, '설명회': l['설명회'], '신청일': l['신청일'], _base: r} : r;
+    if (hit) { if (x === r) x = {...r, _base: r}; asWithdrawn(x, hit.st); }
+    rows.push(x);
+  }
   // 설명회 신청자 웹 보정값 (구글시트 원본은 그대로, 동기화돼도 유지)
-  // 재원생·퇴원생과 이름+연락처가 같은 신청자 → 기존 DB(재원·퇴원) 학년을 따름
-  const stIdx = new Map();
-  [['재원', S.active], ['퇴원', S.withdrawn]].forEach(([kind, obj]) => Object.values(obj).forEach(st =>
-    [st.parentPhone, st.studentPhone].map(digits).filter(Boolean).forEach(d => stIdx.set(norm(st.name) + '|' + d, {kind, st}))));
-  const leads = Object.values(merged).map(l => {
-    const e = (S.leadEdits || {})[leadId(l)], hit = stIdx.get(norm(l['이름']) + '|' + l._ph);
-    if (!e && !hit) return l;
+  const leads = [];
+  for (const l of Object.values(merged)) {
+    const e = (S.leadEdits || {})[leadId(l)], hit = findSt(l);
+    if (hit && hit.kind === '재원') { activeHidden++; continue; }
+    if (!e && !hit) { leads.push(l); continue; }
     const x = {...l};
-    if (hit) {
-      x._inDB = hit.kind;
-      if (hit.st.gLevel != null) { x['학년'] = `${curGradeOf(hit.st)} (${hit.kind}생 DB)`; x._lv = hit.st.gLevel; x._yr = hit.st.gYear; }
-      if (!x['학교'] && hit.st.school) x['학교'] = hit.st.school;
-    }
-    if (!e) return x;
+    if (hit) asWithdrawn(x, hit.st);
+    if (!e) { leads.push(x); continue; }
     x._edited = true;
     if (e.grade) { x['학년'] = e.grade + ' (웹 수정)'; x._lv = e._lv; x._yr = e._yr; }
     if (e.school) x['학교'] = e.school;
     if (e.memo) x['메모'] = e.memo;
-    if (e.region) { const [sd, gu] = e.region.split(' '); x._region = e.region; x['시도'] = sd; if (gu) x['시군구'] = gu; }
+    if (e.region) setRowRegion(x, e.region);
+    leads.push(x);
+  }
+  // 외부생 DB·신청자에 없는 퇴원생 → 필요한 정보만 외부생 DB에 추가
+  const wdRows = Object.values(S.withdrawn).filter(st => !wdUsed.has(st.id)).map(st => {
+    const x = { 'ID': st.id, '이름': st.name, '학교': st.school || '', '학년': st.gLevel != null ? `${curGradeOf(st)} (퇴원생 DB)` : (st.grade || ''),
+      '학부모 연락처': st.parentPhone || '', '학생 연락처': st.studentPhone || '',
+      _ph: digits(st.parentPhone || st.studentPhone), _lv: st.gLevel, _yr: st.gYear, _region: '', _key: 'wd:' + st.id, _wd: st.id, _wdOnly: true, _inDB: '퇴원', _src: '퇴원생' };
+    if (st.region) setRowRegion(x, st.region);
     return x;
   });
-  EXT_ALL = [...rows, ...leads];
+  EXT_ALL = [...rows, ...leads, ...wdRows];
+  S.activeHidden = activeHidden; S.withdrawnShown = wdUsed.size + wdRows.length;
   inferRegionsBySchool();
   if (regionIsDefault) regionSel = defaultRegionSel();
 }
+function setRowRegion(x, region){ const [sd, gu] = region.split(' '); x._region = region; x['시도'] = sd; if (gu) x['시군구'] = gu; }
 // 학교 이름 정규화: 서원초등학교/서원초 → 서원초, 동덕여자중학교/동덕여중 → 동덕여중
 const schoolKey = s => String(s||'').replace(/\s/g,'').replace(/등학교$/,'').replace(/학교$/,'').replace(/여자/,'여');
 // 지역이 없는 학생은 학교 이름으로 지역 추정 (외부생 DB 안에서 같은 학교 학생들의 지역이 80% 이상 한 곳일 때만)
@@ -530,13 +567,22 @@ function inferRegionsBySchool(){
     if (g) { r._region = g; r._rg = 1; cnt++; }
   }
   S.regionGuessCount = cnt;
+  // 학교→지역 대응표를 작게 따로 저장 → 재원생·퇴원생 화면에서 외부생 DB를 불러오지 않고도 지역 추정
+  const table = Object.fromEntries([...guess].sort((a, b) => ko(a[0], b[0])));
+  if (guess.size && JSON.stringify(table) !== JSON.stringify(S.schoolRegions || {})) {
+    S.schoolRegions = table;
+    Store.saveMeta({ schoolRegions: table }).catch(err => console.error('schoolRegions', err));
+  }
 }
+// 재원생·퇴원생 지역: 직접 입력한 지역 → 없으면 학교 이름으로 추정
+const studentRegion = st => st.region ? { g: st.region, guess: false } : { g: (S.schoolRegions || {})[schoolKey(st.school)] || '', guess: true };
 // '설명회' 칸에는 설명회·입학고사 신청 내역이 함께 들어 있어 화면·다운로드에서는 '신청 내역'으로 표시
 const colLabel = c => c === '설명회' ? '신청 내역' : c;
 function extCols(){
   const cols = S.external.cols.length ? [...S.external.cols] : (S.leads.length ? [...LEAD_COLS] : []);
   if (S.leads.length) ['신청일','설명회'].forEach(c => { if (!cols.includes(c)) cols.push(c); });
   if (!cols.includes('메모') && EXT_ALL.some(r => r['메모'])) cols.push('메모');
+  if (EXT_ALL.some(r => r._wd)) ['ID','학생 연락처'].forEach(c => { if (!cols.includes(c)) cols.unshift(c); });
   return cols.filter(c => !DROP_COLS.has(c));
 }
 
@@ -726,7 +772,8 @@ function filteredExternal(){
   const hitTerm = (r, q) => /\d{4}/.test(q) && !/[년월]/.test(q) ? rowPhone(r).includes(q.replace(/\D/g,'')) : ['이름','학교','주소','메모','설명회'].some(c => String(r[c]||'').replace(/\s/g,'').includes(q.replace(/\s/g,'')));
   const list = EXT_ALL.filter(r => {
     if (terms.length && !terms.some(q => hitTerm(r, q))) return false;
-    if (src==="upload" && r._lead) return false;
+    if (src==="upload" && (r._lead || r._wdOnly)) return false;
+    if (src==="wd" && !r._wd) return false;
     if (src==="lead" && !r["설명회"]) return false;
     if (src==="leadNew" && !(r._lead && !r._inDB)) return false;     // 신청자 중 외부생·재원·퇴원 DB 어디에도 없는 사람
     if (gradeOff.has(extGradeKey(r))) return false;
@@ -746,7 +793,7 @@ function renderExternal(){
   const gCount = {}; rows.forEach(r => { const k = extGradeKey(r); gCount[k] = (gCount[k]||0)+1; });
   const rCount = {}; rows.forEach(r => { const k = r._region || '__none'; rCount[k] = (rCount[k]||0)+1; });
   const withRegion = rows.length - (rCount.__none||0);
-  $('#eStats').innerHTML = !extLoaded ? '' : `<div class="stat"><b>${rows.length.toLocaleString()}</b>건 외부생 DB</div><div class="stat"><b>${withRegion.toLocaleString()}</b>건 지역 입력됨${S.regionGuessCount ? ` <span class="muted">(학교로 추정 ${S.regionGuessCount.toLocaleString()}건 포함)</span>` : ''}</div>${gCount['미분류']?`<div class="stat warn"><b>${gCount['미분류']}</b>건 학년 미분류</div>`:''}<div class="stat"><b>${S.leads.length.toLocaleString()}</b>건 설명회·입학고사 신청 <span class="muted">(구글시트 자동 연동${S.leadsMeta?.lastSync ? ' · ' + new Date(S.leadsMeta.lastSync).toLocaleString('ko-KR') : ' · 아직 연동 전'})</span></div><div class="stat"><b>${Object.keys(S.optOut).length}</b>건 수신거부 번호 (자동 제외)</div>`;
+  $('#eStats').innerHTML = !extLoaded ? '' : `<div class="stat"><b>${rows.length.toLocaleString()}</b>건 외부생 DB</div><div class="stat"><b>${withRegion.toLocaleString()}</b>건 지역 입력됨${S.regionGuessCount ? ` <span class="muted">(학교로 추정 ${S.regionGuessCount.toLocaleString()}건 포함)</span>` : ''}</div>${gCount['미분류']?`<div class="stat warn"><b>${gCount['미분류']}</b>건 학년 미분류</div>`:''}<div class="stat"><b>${S.leads.length.toLocaleString()}</b>건 설명회·입학고사 신청 <span class="muted">(구글시트 자동 연동${S.leadsMeta?.lastSync ? ' · ' + new Date(S.leadsMeta.lastSync).toLocaleString('ko-KR') : ' · 아직 연동 전'})</span></div><div class="stat"><b>${Object.keys(S.optOut).length}</b>건 수신거부 번호 (자동 제외)</div>${S.withdrawnShown ? `<div class="stat"><b>${S.withdrawnShown.toLocaleString()}</b>명 퇴원생 포함</div>` : ''}${S.activeHidden ? `<div class="stat"><b>${S.activeHidden.toLocaleString()}</b>건 재원생이라 제외</div>` : ''}`;
   // 학년
   const gKeys = Object.keys(gCount).sort((a,b)=>(a==='미분류')-(b==='미분류') || (parseGrade(a)??0)-(parseGrade(b)??0));
   $('#eGrades').innerHTML = gKeys.length ? gKeys.map(k=>`<label class="chip ${gradeOff.has(k)?'':'on'}"><input type="checkbox" data-grade="${esc(k)}" ${gradeOff.has(k)?'':'checked'}>${esc(k)} <small>${gCount[k].toLocaleString()}</small></label>`).join('') : '<span class="muted">데이터가 없습니다.</span>';
@@ -876,6 +923,7 @@ function readGradeInput(v, before){
 }
 function openExtEdit(r){
   if (!r) return;
+  if (r._wdOnly) return openWithdrawnEdit(r._wd);
   const efv = () => Object.fromEntries([...document.querySelectorAll('[data-ef]')].map(i => [i.dataset.ef, i.value.trim()]));
   if (r._lead) {      // 설명회 신청자: 웹 보정값만
     const id = leadId(r), e = S.leadEdits[id] || {}, g0 = gradeNow(r);
@@ -1139,7 +1187,7 @@ $('#userList').addEventListener('click', async e => {
 });
 
 /* ================= 시작 · 로그인 ================= */
-function renderAll(){ renderActive(); renderWithdrawn(); renderExternal(); renderOptOut(); renderBackup(); }
+function renderAll(){ if (extLoaded) rebuildExt(); renderActive(); renderWithdrawn(); renderExternal(); renderOptOut(); renderBackup(); }
 document.querySelectorAll('nav button').forEach(b => b.onclick = () => {
   document.querySelectorAll('nav button').forEach(x=>x.classList.toggle('on', x===b));
   document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('on', t.id==='tab-'+b.dataset.tab));

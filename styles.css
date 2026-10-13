@@ -96,3 +96,5 @@ table.pv input[type=text],table.pv input:not([type]){border:1px solid var(--line
 .colpanel .chip{margin:0 4px 6px 0}
 th.sortable{cursor:pointer;user-select:none}
 th.sortable:hover{color:var(--accent)}
+td input.region{width:120px}
+td input.region::placeholder{color:#9aa1ad}
