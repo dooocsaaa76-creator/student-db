@@ -474,9 +474,9 @@ const rowPhone = r => r._ph || digits(PHONE_COLS.map(c=>r[c]).find(Boolean));
 const extLevel = r => nowLevel(r._lv, r._yr, S.settings.extPromote);
 const extGradeKey = r => { const lv = extLevel(r); return lv==null ? '미분류' : gradeLabel(lv); };
 // 지역 초기 설정: '선택한 지역 제외' 모드에서 아래 지역을 뺀 나머지를 모두 제외(체크)
-//  → 서초·관악 권역과 지역 미입력만 남음. 새로 들어온 지역(강북구, 성남시 등)도 자동으로 제외됨
+//  → 서초·관악 권역, 강남구와 지역 미입력만 남음. 새로 들어온 지역(강북구, 성남시 등)도 자동으로 제외됨
 const DEFAULT_REGION_MODE = 'exclude';
-const KEEP_REGIONS = ['서울 서초구','서울 동작구','서울 용산구','서울 관악구','경기 과천시','__none'];
+const KEEP_REGIONS = ['서울 서초구','서울 강남구','서울 동작구','서울 용산구','서울 관악구','경기 과천시','__none'];
 let gradeOff = new Set(), regionSel = new Set();
 let regionIsDefault = true;   // 사용자가 지역 선택을 바꾸기 전까지는 데이터가 바뀔 때마다 기본값을 다시 적용
 const defaultRegionSel = () => new Set(EXT_ALL.map(r => r._region || '__none').filter(k => !KEEP_REGIONS.includes(k)));
@@ -830,7 +830,7 @@ function renderExternal(){
   const present = new Set(Object.keys(rCount));
   $('#ePresets').innerHTML = withRegion ? '<span class="muted">권역 선택:</span> ' + Object.entries(REGION_PRESETS).map(([name, regs]) => {
     const have = regs.filter(k => present.has(k)), on = have.length && have.every(k => regionSel.has(k));
-    return `<button class="btn sm ${on?'primary':''}" data-preset="${esc(name)}" ${have.length?'':'disabled'} title="${esc(regs.join(', '))}">${esc(name)}</button>`; }).join(' ') + ' <button class="btn sm" onclick="resetRegions()" title="서초·관악 권역만 남기는 기본 설정">↺ 기본값</button>' : '';
+    return `<button class="btn sm ${on?'primary':''}" data-preset="${esc(name)}" ${have.length?'':'disabled'} title="${esc(regs.join(', '))}">${esc(name)}</button>`; }).join(' ') + ' <button class="btn sm" onclick="resetRegions()" title="서초·관악 권역과 강남구만 남기는 기본 설정">↺ 기본값</button>' : '';
   // 지역 (시도별 묶음)
   const groups = {};
   Object.keys(rCount).filter(k=>k!=='__none').forEach(k => { const sd = k.split(' ')[0]; (groups[sd] ||= []).push(k); });
