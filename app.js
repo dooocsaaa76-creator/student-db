@@ -168,7 +168,7 @@ async function rosterUpload(fname, sheets){
                              parentPhone: fmtPhone(cell(row,map.parentPhone) || cell(row,map.phone)), studentPhone: fmtPhone(cell(row,map.studentPhone)), memo: cell(row,map.memo) };
     // 한 학생이 여러 클래스 → 여러 행: 클래스·교사를 모음
     const c = cell(row,map.cls), st = cell(row,map.clsStatus), tc = teacherName(cell(row,map.teacher));
-    if (c && !f.classes.some(x=>x.name===c)) f.classes.push({name:c, status: st && !/^active$/i.test(st) ? st : ''});
+    if (c && !f.classes.some(x=>x.name===c)) f.classes.push({name:c, status: st && !/^active$/i.test(st) ? st : '', teacher: tc});
     if (tc && !f.teachers.includes(tc)) f.teachers.push(tc);
   }
   const ids = Object.keys(file);
@@ -262,6 +262,7 @@ async function contactsUpload(fname, sheets){
 /* ================= 엑셀 내보내기 ================= */
 const clsText = r => (r.classes||[]).map(c=>c.name + (c.status?` (${c.status})`:'')).join('\n');
 const tchText = r => (r.teachers||[]).join(', ');
+const tchLines = r => (r.classes||[]).length ? classTeachers(r).join('\n') : tchText(r);
 function writeXlsx(aoa, sheetName, fname, widths){
   const ws = XLSX.utils.aoa_to_sheet(aoa);
   ws['!cols'] = (widths || aoa[0].map(()=>12)).map(w=>({wch:w}));
@@ -285,8 +286,8 @@ function exportStudents(kind){
                  : ['ID','이름','학년','학교','지역','클래스','교사','학부모 연락처','학생 연락처','메모'];
   const aoa = [head];
   list.forEach(r => aoa.push(W
-    ? [r.id, r.name, curGradeOf(r), r.withdrawGrade||r.grade, r.school, regionText(r), clsText(r), tchText(r), r.parentPhone||'', r.studentPhone||'', r.memo||'', (r.withdrawnAt||'').slice(0,7)]
-    : [r.id, r.name, r.grade, r.school, regionText(r), clsText(r), tchText(r), r.parentPhone||'', r.studentPhone||'', r.memo||'']));
+    ? [r.id, r.name, curGradeOf(r), r.withdrawGrade||r.grade, r.school, regionText(r), clsText(r), tchLines(r), r.parentPhone||'', r.studentPhone||'', r.memo||'', (r.withdrawnAt||'').slice(0,7)]
+    : [r.id, r.name, r.grade, r.school, regionText(r), clsText(r), tchLines(r), r.parentPhone||'', r.studentPhone||'', r.memo||'']));
   writeXlsx(aoa, W?'퇴원생':'재원생', `${W?'퇴원생':'재원생'}_${ymd()}_${list.length}명.xlsx`,
     W ? [11,9,10,10,16,18,34,14,16,16,20,10] : [11,9,7,16,18,34,14,16,16,20]);
 }
@@ -304,12 +305,25 @@ function fillSelect(el, label, values){
 const uniq = arr => [...new Set(arr.filter(Boolean))];
 const sortGrades = arr => arr.sort((a,b)=>(parseGrade(a)??99)-(parseGrade(b)??99) || ko(a,b));
 const clsCell = r => `<td class="cls">${(r.classes||[]).map(c=>`<div class="${c.status?'hold':''}">${esc(c.name)}${c.status?` <span class="tag">${esc(c.status)}</span>`:''}</div>`).join('')}</td>`;
+// 클래스별 교사: 저장된 담당 교사 → 없으면(이전 업로드분) 교사 수가 같으면 순서대로, 1명이면 모든 줄에 같은 교사
+const classTeachers = r => { const cs = r.classes || [], ts = r.teachers || [];
+  return cs.map((c, i) => c.teacher != null ? c.teacher : ts.length === cs.length ? ts[i] : ts.length === 1 ? ts[0] : (i === 0 ? ts.join(', ') : '')); };
+const tchCell = r => { const cs = r.classes || [];
+  if (!cs.length) return `<td>${esc(tchText(r))}</td>`;
+  return `<td class="cls">${classTeachers(r).map((t, i) => `<div class="${cs[i].status ? 'hold' : ''}">${esc(t) || '&nbsp;'}</div>`).join('')}</td>`; };
 const regionCell = (r, kind) => { const {g, guess} = studentRegion(r);
   return `<td><input class="region" list="regionList" data-k="${kind}" data-id="${esc(r.id)}" data-f="region" value="${esc(r.region||'')}" placeholder="${esc(g && guess ? g + ' (학교)' : '지역 입력')}"></td>`; };
-function fillRegionList(){
+function fillRegionList(top){
   const regs = uniq([...Object.values(S.schoolRegions || {}), ...SEOUL_GU.map(g => '서울 ' + g), ...GG_CITY.map(g => '경기 ' + g)]).sort(ko);
-  $('#regionList').innerHTML = regs.map(x => `<option value="${esc(x)}">`).join('');
+  const list = top ? [top, ...regs.filter(x => x !== top)] : regs;
+  $('#regionList').innerHTML = list.map((x, i) => `<option value="${esc(x)}">${top && i === 0 ? '학교로 추정' : ''}</option>`).join('');
 }
+document.addEventListener('focusin', e => {
+  const el = e.target;
+  if (!el.classList || !el.classList.contains('region') || !el.dataset.k) return;
+  const rec = S[el.dataset.k] && S[el.dataset.k][el.dataset.id];
+  fillRegionList(rec ? studentRegion(rec).g : '');
+});
 const regionText = r => { const {g, guess} = studentRegion(r); return g ? g + (guess ? ' (학교 추정)' : '') : ''; };
 const contactCells = (r, kind) => ['parentPhone','studentPhone'].map(f =>
   `<td class="${r[f]?'':'empty'}"><input data-k="${kind}" data-id="${esc(r.id)}" data-f="${f}" value="${esc(r[f]||'')}" placeholder="입력"></td>`).join('')
@@ -317,7 +331,15 @@ const contactCells = (r, kind) => ['parentPhone','studentPhone'].map(f =>
 
 function filteredActive(){
   const q=$('#aSearch').value.trim().toLowerCase(), c=$('#aClass').value, t=$('#aTeacher').value, g=$('#aGrade').value, m=$('#aMissing').checked;
-  return Object.values(S.active).filter(r => textHit(r,q) && (!c||(r.classes||[]).some(x=>x.name===c)) && (!t||(r.teachers||[]).includes(t)) && (!g||r.grade===g) && (!m||missingContact(r))).sort(byClass);
+  return aSortRows(Object.values(S.active).filter(r => textHit(r,q) && (!c||(r.classes||[]).some(x=>x.name===c)) && (!t||(r.teachers||[]).includes(t)) && (!g||r.grade===g) && (!m||!r.parentPhone)));
+}
+// 재원생 정렬: 처음엔 클래스 → 이름. 이름·학년·학교 제목 클릭: 오름차순 → 내림차순 → 원래 순서
+let aSort = null;
+function aSortRows(list){
+  if (!aSort) return list.sort(byClass);
+  const {col, dir} = aSort;
+  const key = col === '학년' ? (r => parseGrade(r.grade) ?? 99) : col === '학교' ? (r => r.school || '\uffff') : (r => r.name || '');
+  return list.sort((a, b) => { const x = key(a), y = key(b); const d = typeof x === 'number' ? x - y : ko(x, y); return (d || ko(a.name, b.name)) * dir; });
 }
 function renderActive(){
   const all = Object.values(S.active);
@@ -332,8 +354,9 @@ function renderActive(){
   const list = filteredActive();
   $('#aCount').textContent = `${list.length}명 표시`;
   fillRegionList();
-  $('#aTable').innerHTML = `<thead><tr><th>ID</th><th>이름</th><th>학년</th><th>학교</th><th>지역</th><th>클래스</th><th>교사</th><th>학부모 연락처</th><th>학생 연락처</th><th>메모</th></tr></thead><tbody>`
-    + (list.length ? list.map(r=>`<tr><td>${esc(r.id)}</td><td><b>${esc(r.name)}</b>${optBadge(r)}</td><td>${esc(r.grade)}</td><td>${esc(r.school)}</td>${regionCell(r,'active')}${clsCell(r)}<td>${esc(tchText(r))}</td>${contactCells(r,'active')}</tr>`).join('')
+  const ah = c => `<th class="sortable" data-asort="${c}" title="클릭해서 정렬">${c}${aSort && aSort.col === c ? (aSort.dir > 0 ? ' ▲' : ' ▼') : ''}</th>`;
+  $('#aTable').innerHTML = `<thead><tr><th>ID</th>${ah('이름')}${ah('학년')}${ah('학교')}<th>지역</th><th>클래스</th><th>교사</th><th>학부모 연락처</th><th>학생 연락처</th><th>메모</th></tr></thead><tbody>`
+    + (list.length ? list.map(r=>`<tr><td>${esc(r.id)}</td><td><b>${esc(r.name)}</b>${optBadge(r)}</td><td>${esc(r.grade)}</td><td>${esc(r.school)}</td>${regionCell(r,'active')}${clsCell(r)}${tchCell(r)}${contactCells(r,'active')}</tr>`).join('')
        : `<tr><td colspan="10" class="muted" style="text-align:center;padding:30px">${all.length?'조건에 맞는 학생이 없습니다.':'"배치생 리스트 업로드" 버튼으로 엑셀 파일을 올려주세요.'}</td></tr>`) + '</tbody>';
 }
 function filteredWithdrawn(){
@@ -352,9 +375,15 @@ function renderWithdrawn(){
   $('#wCount').textContent = `${list.length}명 표시`;
   $('#wTable').innerHTML = `<thead><tr><th>ID</th><th>이름</th><th>현재 학년</th><th>퇴원 당시</th><th>학교</th><th>지역</th><th>클래스</th><th>교사</th><th>학부모 연락처</th><th>학생 연락처</th><th>메모</th><th title="명단에서 빠진 배치생 리스트를 올린 달">퇴원 시기</th><th></th></tr></thead><tbody>`
     + (list.length ? list.map(r=>{ const cg = curGradeOf(r), auto = r.gLevel!=null && cg !== (r.withdrawGrade||r.grade);
-      return `<tr><td>${esc(r.id)}</td><td><b>${esc(r.name)}</b>${optBadge(r)}</td><td><span class="tag ${auto?'auto':''}" title="${r.gLevel==null?'학년 표기를 인식하지 못해 자동 진급되지 않습니다':''}">${esc(cg)}</span></td><td class="muted">${esc(r.withdrawGrade||r.grade)}</td><td>${esc(r.school)}</td>${regionCell(r,'withdrawn')}${clsCell(r)}<td>${esc(tchText(r))}</td>${contactCells(r,'withdrawn')}<td>${esc((r.withdrawnAt||'').slice(0,7))}</td><td><button class="btn sm" data-wedit="${esc(r.id)}">수정</button> <button class="btn sm danger" data-del="${esc(r.id)}">삭제</button></td></tr>`; }).join('')
+      return `<tr><td>${esc(r.id)}</td><td><b>${esc(r.name)}</b>${optBadge(r)}</td><td><span class="tag ${auto?'auto':''}" title="${r.gLevel==null?'학년 표기를 인식하지 못해 자동 진급되지 않습니다':''}">${esc(cg)}</span></td><td class="muted">${esc(r.withdrawGrade||r.grade)}</td><td>${esc(r.school)}</td>${regionCell(r,'withdrawn')}${clsCell(r)}${tchCell(r)}${contactCells(r,'withdrawn')}<td>${esc((r.withdrawnAt||'').slice(0,7))}</td><td><button class="btn sm" data-wedit="${esc(r.id)}">수정</button> <button class="btn sm danger" data-del="${esc(r.id)}">삭제</button></td></tr>`; }).join('')
        : `<tr><td colspan="13" class="muted" style="text-align:center;padding:30px">퇴원생이 없습니다. 새 배치생 리스트를 올렸을 때 명단에서 빠진 학생이 이곳으로 이동합니다.</td></tr>`) + '</tbody>';
 }
+$('#aTable').addEventListener('click', e => {
+  const th = e.target.closest('th[data-asort]'); if (!th) return;
+  const c = th.dataset.asort;
+  aSort = !aSort || aSort.col !== c ? {col: c, dir: 1} : aSort.dir > 0 ? {col: c, dir: -1} : null;
+  renderActive();
+});
 $('#wTable').addEventListener('click', async e => {
   if (e.target.dataset && e.target.dataset.wedit) return openWithdrawnEdit(e.target.dataset.wedit);
   const id = e.target.dataset && e.target.dataset.del; if (!id) return;
