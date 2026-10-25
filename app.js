@@ -375,7 +375,7 @@ function renderWithdrawn(){
   $('#wCount').textContent = `${list.length}명 표시`;
   $('#wTable').innerHTML = `<thead><tr><th>ID</th><th>이름</th><th>현재 학년</th><th>퇴원 당시</th><th>학교</th><th>지역</th><th>클래스</th><th>교사</th><th>학부모 연락처</th><th>학생 연락처</th><th>메모</th><th title="명단에서 빠진 배치생 리스트를 올린 달">퇴원 시기</th><th></th></tr></thead><tbody>`
     + (list.length ? list.map(r=>{ const cg = curGradeOf(r), auto = r.gLevel!=null && cg !== (r.withdrawGrade||r.grade);
-      return `<tr><td>${esc(r.id)}</td><td><b>${esc(r.name)}</b>${optBadge(r)}</td><td><span class="tag ${auto?'auto':''}" title="${r.gLevel==null?'학년 표기를 인식하지 못해 자동 진급되지 않습니다':''}">${esc(cg)}</span></td><td class="muted">${esc(r.withdrawGrade||r.grade)}</td><td>${esc(r.school)}</td>${regionCell(r,'withdrawn')}${clsCell(r)}${tchCell(r)}${contactCells(r,'withdrawn')}<td>${esc((r.withdrawnAt||'').slice(0,7))}</td><td><button class="btn sm" data-wedit="${esc(r.id)}">수정</button> <button class="btn sm danger" data-del="${esc(r.id)}">삭제</button></td></tr>`; }).join('')
+      return `<tr><td>${esc(r.id)}</td><td><b>${esc(r.name)}</b>${optBadge(r)}</td><td><span class="grade-now ${r.gLevel==null?'none':''}" title="${r.gLevel==null?'학년 표기를 인식하지 못해 자동 진급되지 않습니다':''}">${esc(cg)}</span></td><td class="muted">${esc(r.withdrawGrade||r.grade)}</td><td>${esc(r.school)}</td>${regionCell(r,'withdrawn')}${clsCell(r)}${tchCell(r)}${contactCells(r,'withdrawn')}<td>${esc((r.withdrawnAt||'').slice(0,7))}</td><td><button class="btn sm" data-wedit="${esc(r.id)}">수정</button> <button class="btn sm danger" data-del="${esc(r.id)}">삭제</button></td></tr>`; }).join('')
        : `<tr><td colspan="13" class="muted" style="text-align:center;padding:30px">퇴원생이 없습니다. 새 배치생 리스트를 올렸을 때 명단에서 빠진 학생이 이곳으로 이동합니다.</td></tr>`) + '</tbody>';
 }
 $('#aTable').addEventListener('click', e => {
@@ -905,8 +905,9 @@ function renderExternalResult(){
   const cols = viewCols();
   extView = sortExt(list).slice(0,200);
   const arrow = c => extSort && extSort.col === c ? (extSort.dir > 0 ? ' ▲' : ' ▼') : '';
-  const td = (r, c) => c === VCOL_GRADE ? `<td><span class="tag">${esc(extGradeKey(r))}</span></td>`
+  const td = (r, c) => c === VCOL_GRADE ? `<td><span class="grade-now ${extLevel(r)==null?'none':''}">${esc(extGradeKey(r))}</span></td>`
     : c === VCOL_REGION ? `<td>${esc(r._region)}${r._rg ? ' <span class="muted" title="학교 이름으로 추정한 지역">(학교)</span>' : ''}</td>`
+    : c === '학년' ? `<td class="dim">${esc(r[c])}</td>`
     : `<td>${esc(r[c])}</td>`;
   $('#eTable').innerHTML = allViewCols().length > 2 ? `<thead><tr><th></th>${cols.map(c=>`<th class="sortable" data-sort="${esc(c)}" title="클릭해서 정렬">${esc(colLabel(c))}${arrow(c)}</th>`).join('')}</tr></thead><tbody>`
     + extView.map((r,i)=>{ const ph = rowPhone(r);
