@@ -1,7 +1,8 @@
 /* ================= 공통 ================= */
 const $ = s => document.querySelector(s);
 const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const CUR_YEAR = new Date().getFullYear();
+// 현재 학년도: 학년은 3월 1일에 바뀜 → 1·2월은 아직 전년도 학년도 (예: 2027년 2월 = 2026학년도)
+const CUR_YEAR = (d => d.getMonth() >= 2 ? d.getFullYear() : d.getFullYear() - 1)(new Date());
 const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; };
 const ymd = () => today().replace(/-/g,'');
 const ko = (a,b) => String(a||'').localeCompare(String(b||''),'ko');
@@ -367,7 +368,7 @@ function filteredWithdrawn(){
 function renderWithdrawn(){
   const all = Object.values(S.withdrawn);
   const mp = all.filter(r=>!r.parentPhone).length;
-  $('#wInfo').innerHTML = `현재 기준 연도 <b>${CUR_YEAR}년</b> · '현재 학년'은 마지막으로 확인된 학년에서 해가 바뀔 때마다 자동으로 올라갑니다. 고3 다음부터는 나이(20세, 21세 …)로 표시됩니다.`;
+  $('#wInfo').innerHTML = `현재 <b>${CUR_YEAR}학년도</b> · '현재 학년'은 마지막으로 확인된 학년에서 매년 <b>3월 1일</b>에 자동으로 올라갑니다. 고3 다음부터는 나이(20세, 21세 …)로 표시됩니다.`;
   $('#wStats').innerHTML = `<div class="stat"><b>${all.length}</b>명 누적 퇴원생</div><div class="stat ${mp?'warn':''}"><b>${mp}</b>명 학부모 연락처 미입력</div>`;
   fillSelect($('#wGrade'),'현재 학년', sortGrades(uniq(all.map(curGradeOf))));
   fillSelect($('#wYear'),'퇴원 연도', uniq(all.map(r=>(r.withdrawnAt||'').slice(0,4))).sort().reverse());
@@ -402,7 +403,7 @@ function openWithdrawnEdit(id){
       <label class="ef"><span>학교</span><input id="wfSchool" value="${esc(r.school||'')}"></label>
       <label class="ef"><span>현재 학년</span><input id="wfGrade" value="${esc(g0)}" placeholder="예) 중2, 20세"></label>
     </div>
-    <p class="muted">현재 학년을 고치면 올해 기준으로 저장되고, 해가 바뀌면 다시 자동으로 올라갑니다. 연락처·메모는 표에서 바로 고치면 됩니다.</p>
+    <p class="muted">현재 학년을 고치면 이번 학년도 기준으로 저장되고, 3월 1일이 지나면 다시 자동으로 올라갑니다. 연락처·메모는 표에서 바로 고치면 됩니다.</p>
     <div class="row" style="justify-content:flex-end;margin-top:12px"><button class="btn" onclick="closeModal()">취소</button><button class="btn primary" id="wfSave">저장</button></div>`);
   $('#wfSave').onclick = async () => {
     const name = $('#wfName').value.trim(), school = $('#wfSchool').value.trim(), gv = $('#wfGrade').value.trim();
@@ -721,7 +722,7 @@ function renderExtPreview(){
   const P = extPending, plan = planExt();
   const regions = uniq(EXT_ALL.map(r => r._region)).sort(ko);
   modal(`<h3>외부생 DB 업로드 확인</h3>
-    <p class="muted">${esc(P.fname)} · 학년 기준 연도 ${P.baseYear}년 · 학년은 각 행의 '학년' 칸 글자 기준 (예: 중2 (grade 7) → 중2)</p>
+    <p class="muted">${esc(P.fname)} · 학년 기준 ${P.baseYear}학년도 · 학년은 각 행의 '학년' 칸 글자 기준 (예: 중2 (grade 7) → 중2)</p>
     <table class="pv"><thead><tr><th>포함</th><th>시트</th><th>행</th><th>인식한 열</th><th>지역 지정</th></tr></thead><tbody>
     ${P.parsed.map((p,i) => `<tr><td><input type="checkbox" data-pvon="${i}" ${P.opt[i].on?'checked':''}></td><td><b>${esc(p.name)}</b></td><td>${p.rows.length.toLocaleString()}</td>
       <td class="muted" style="white-space:normal;max-width:260px">${esc(p.got.join(', '))}${p.got.includes('이름') ? '' : ' <span style="color:var(--warn)">(이름 없음)</span>'}</td>
@@ -1176,7 +1177,7 @@ async function restore(file){
 function renderBackup(){
   $('#lastBackup').textContent = S.lastBackup ? `마지막 백업: ${S.lastBackup}` : '아직 백업한 적이 없습니다.';
   $('#extPromote').checked = !!S.settings.extPromote;
-  $('#curYearLbl').textContent = CUR_YEAR + '년';
+  $('#curYearLbl').textContent = CUR_YEAR + '학년도 (3월 1일에 다음 학년도로 바뀜)';
   $('#logList').innerHTML = S.logs.length ? S.logs.slice(0,200).map(l=>`<li>${esc(l.at)} · <b>${esc(l.type)}</b> ${esc(l.file)} ${l.summary?'— '+esc(l.summary):''} <span class="muted">${esc(l.by||'')}</span></li>`).join('') : '<li class="muted">이력이 없습니다.</li>';
 }
 $('#extPromote').addEventListener('change', async e => {

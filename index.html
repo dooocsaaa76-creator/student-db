@@ -113,14 +113,14 @@
   <div class="card">
     <h2>외부생 DB 업로드</h2>
     <div class="row">
-      <label>학년 기준 연도 <input type="number" id="eBaseYear" style="width:90px"></label>
+      <label>학년 기준 학년도 <input type="number" id="eBaseYear" style="width:90px"></label>
       <label class="radio"><input type="radio" name="eMode" value="append" checked> 기존 DB에 추가 (중복 제외)</label>
       <label class="radio"><input type="radio" name="eMode" value="replace"> 기존 DB 전체 교체</label>
       <button class="btn primary" onclick="pick('external')">외부생 엑셀 업로드</button>
       <button class="btn" onclick="openExtAdd()">+ 직접 입력</button>
       <button class="btn danger" onclick="clearExternal()">외부생 DB 비우기</button>
     </div>
-    <p class="muted" style="margin:8px 0 0">· '학년 기준 연도'는 업로드하는 파일의 학년이 몇 년도 기준인지 입력합니다. 해가 바뀌면 학년이 자동으로 올라갑니다 (설정에서 끌 수 있음).<br>
+    <p class="muted" style="margin:8px 0 0">· '학년 기준 학년도'는 업로드하는 파일의 학년이 몇 학년도 기준인지 입력합니다 (1·2월에 뽑은 자료는 전년도). 매년 3월 1일에 학년이 자동으로 올라갑니다 (설정에서 끌 수 있음).<br>
     · 열 이름에 '학년', '지역'(또는 주소·거주지)이 있으면 자동 인식합니다. 그 외 열은 그대로 보존되어 다운로드됩니다. 이름+연락처가 같은 행은 중복으로 보고 제외합니다.</p>
     <div class="stats" id="eStats"></div>
   </div>
@@ -210,7 +210,7 @@
 
     <h3>3. 퇴원생</h3>
     <ul>
-      <li>해가 바뀌면 학년이 자동으로 올라갑니다. 고3 다음 해부터는 나이(20세, 21세 …)로 표시됩니다.</li>
+      <li>매년 <b>3월 1일</b>에 학년이 자동으로 올라갑니다. 고3 다음 해부터는 나이(20세, 21세 …)로 표시됩니다.</li>
       <li>'퇴원 시기'는 그 학생이 빠진 배치생 리스트를 올린 달입니다.</li>
       <li>[수정]으로 이름·학교·현재 학년을 고칠 수 있습니다.</li>
     </ul>
@@ -228,7 +228,7 @@
 
     <h3>5. 외부생 엑셀 업로드할 때 주의</h3>
     <ul>
-      <li>'학년 기준 연도'에 <b>그 파일의 학년이 몇 년도 기준인지</b> 넣습니다. (예: 작년에 뽑은 자료면 작년 연도)</li>
+      <li>'학년 기준 학년도'에 <b>그 파일의 학년이 몇 학년도 기준인지</b> 넣습니다. (예: 작년에 뽑은 자료면 작년, 1·2월에 뽑은 자료도 아직 전년도)</li>
       <li>보통은 <b>'기존 DB에 추가'</b>로 올립니다. '기존 DB 전체 교체'는 기존 외부생 DB가 <b>모두 지워지니</b> 꼭 필요할 때만 쓰세요.</li>
       <li>미리보기에서 시트별로 포함 여부와 지역을 정할 수 있습니다.</li>
     </ul>
@@ -278,13 +278,13 @@
   </div>
   <div class="card">
     <h2>설정</h2>
-    <label class="radio"><input type="checkbox" id="extPromote"> 외부생 DB도 해가 바뀌면 학년 자동 진급</label>
+    <label class="radio"><input type="checkbox" id="extPromote"> 외부생 DB도 매년 3월 1일에 학년 자동 진급</label>
     <div class="info">
       <b>학년 자동 진급 규칙</b> (퇴원생 · 외부생)<br>
-      · 학년은 '기록된 연도' 기준으로 저장되며, 해가 바뀔 때마다(1월 1일) 1학년씩 자동으로 올라갑니다.<br>
+      · 학년은 '기록된 학년도' 기준으로 저장되며, 매년 <b>3월 1일</b>에 1학년씩 자동으로 올라갑니다. (1·2월은 아직 전년도 학년)<br>
       · 초1~초6 → 중1~중3 → 고1~고3 → 이후는 나이로 표시 (고3 다음 해 = 20세, 그 다음 해 = 21세 …)<br>
       · 인식 가능한 학년 표기 예: 초3, 초5 (grade 5), 초등3, 중2, 중학교 2학년, 고1, 예비고1(=중3), 대1(=20세), 21세<br>
-      · 오늘 기준 연도: <b id="curYearLbl"></b>
+      · 현재: <b id="curYearLbl"></b>
     </div>
   </div>
   <div class="card">
