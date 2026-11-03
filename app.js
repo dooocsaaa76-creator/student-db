@@ -233,6 +233,7 @@ async function applyRoster(){
   });
   pending = null; renderAll();
   alert(`반영 완료\n갱신 ${nKept}명 · 신규 ${nNew}명 · 복귀 ${nRet}명 · 퇴원 이동 ${nOut}명`);
+  if (nNew) await findParentPhones(true);   // 신규 재원생은 학부모 연락처가 비어 있으므로 외부생 DB에서 바로 찾아봄
 }
 
 /* ================= 연락처 일괄 업로드 ================= */
@@ -258,6 +259,69 @@ async function contactsUpload(fname, sheets){
   });
   renderAll();
   alert(`연락처 반영 완료: ${writes.length}명 (${cnt}건)` + (notFound.length ? `\n\n등록되지 않은 ID ${notFound.length}건은 건너뛰었습니다:\n${notFound.slice(0,30).join(', ')}${notFound.length>30?' …':''}` : ''));
+}
+
+/* ================= 재원생 학부모 연락처: 외부생 DB에서 찾기 ================= */
+// 학부모 연락처가 빈 재원생을 외부생 DB(업로드분 + 설명회·입학고사 신청자)에서 찾음
+//  · 이름·학년·학교가 모두 같고 번호가 하나 → '같은 학생' (미리 선택)
+//  · 이름·학년만 같음(학교 다름 — 외부생 DB는 예전 초등학교로 남아 있는 경우 등) 또는 번호가 여러 개 → '확인 필요' (직접 선택)
+let phoneCand = [];
+async function findParentPhones(afterRoster){
+  const targets = Object.values(S.active).filter(st => !st.parentPhone);
+  if (!targets.length) { if (!afterRoster) alert('학부모 연락처가 비어 있는 재원생이 없습니다.'); return; }
+  await ensureExternal(); if (!extLoaded) return;
+  const leadRows = (S.leads || []).map(r => { const e = (S.leadEdits || {})[leadId(r)]; if (!e) return r;
+    const x = {...r}; if (e.phone) x._ph = digits(e.phone); if (e.school) x['학교'] = e.school; if (e.grade) { x._lv = e._lv; x._yr = e._yr; } return x; });
+  const byNL = new Map();
+  for (const [rows, from] of [[S.external.rows, r => r._src || '외부생 DB'], [leadRows, r => '신청자' + (r['설명회'] ? ' · ' + r['설명회'] : '')]]) for (const r of rows) {
+    const ph = rowPhone(r), lv = extLevel(r);
+    if (!r['이름'] || !/^01\d{8,9}$/.test(ph) || lv == null) continue;
+    const k = norm(r['이름']) + '|' + lv;
+    if (!byNL.has(k)) byNL.set(k, []);
+    byNL.get(k).push({ph, school: r['학교'] || '', from: from(r)});
+  }
+  phoneCand = [];
+  for (const st of targets) {
+    const lv = nowLevel(st.gLevel, st.gYear); if (lv == null) continue;
+    const c = byNL.get(norm(st.name) + '|' + lv); if (!c) continue;
+    const sk = schoolKey(st.school), same = sk ? c.filter(x => schoolKey(x.school) === sk) : [];
+    const pool = same.length ? same : c, phones = uniq(pool.map(x => x.ph));
+    phones.forEach(ph => { const xs = pool.filter(x => x.ph === ph);
+      phoneCand.push({ st, ph, sameSchool: !!same.length, sure: !!same.length && phones.length === 1, schools: uniq(xs.map(x => x.school)), from: uniq(xs.map(x => x.from)) }); });
+  }
+  if (!phoneCand.length) { if (!afterRoster) alert(`학부모 연락처가 빈 재원생 ${targets.length}명 중 외부생 DB에서 이름·학년이 같은 학생을 찾지 못했습니다.`); return; }
+  phoneCand.sort((a, b) => (b.sure - a.sure) || ko(a.st.name, b.st.name));
+  const nSure = phoneCand.filter(p => p.sure).length, nCheck = uniq(phoneCand.filter(p => !p.sure).map(p => p.st.id)).length;
+  const row = (p, i) => `<tr class="${p.sure ? '' : 'pf-check'}"><td><input type="checkbox" data-pf="${i}" data-sid="${esc(p.st.id)}" ${p.sure ? 'checked' : ''}></td>
+    <td>${p.sure ? '<span class="tag">같은 학생</span>' : '<span class="tag warn">확인 필요</span>'}</td>
+    <td><b>${esc(p.st.name)}</b> <span class="muted">${esc(p.st.id)}</span></td><td>${esc(p.st.grade)}</td><td>${esc(p.st.school)}</td>
+    <td class="${p.sameSchool ? '' : 'pf-diff'}">${esc(p.schools.join(', ') || '(학교 없음)')}</td><td>${esc(fmtPhone(p.ph))}</td><td class="muted">${esc(p.from.join(', '))}</td></tr>`;
+  modal(`<h3>외부생 DB에서 학부모 연락처 찾기</h3>
+    <p class="muted">학부모 연락처가 빈 재원생 ${targets.length}명 중 외부생 DB에서 이름·학년이 같은 학생을 찾았습니다.<br>
+    · <b>같은 학생</b> ${nSure}명: 이름·학년·학교가 모두 같아 미리 선택해 두었습니다.<br>
+    · <b>확인 필요</b> ${nCheck}명: 이름·학년은 같지만 학교가 다르거나(예전 학교로 기록된 경우 등) 번호가 여러 개입니다. 맞는 번호만 체크해 주세요.<br>
+    재원생 학교가 정확한 정보이며, 체크한 번호만 재원생의 학부모 연락처에 저장됩니다.</p>
+    <div class="tablewrap" style="max-height:52vh"><table id="pfTable"><thead><tr><th></th><th>구분</th><th>재원생</th><th>학년</th><th>재원생 학교</th><th>외부생 DB 학교</th><th>학부모 연락처</th><th>출처</th></tr></thead>
+    <tbody>${phoneCand.map(row).join('')}</tbody></table></div>
+    <div class="row" style="justify-content:flex-end;margin-top:16px">
+      <button class="btn" onclick="closeModal()">취소</button>
+      <button class="btn primary" onclick="applyParentPhones()">선택한 연락처 저장</button>
+    </div>`);
+  // 한 학생에 번호 하나만 선택되도록
+  $('#pfTable').addEventListener('change', e => { const c = e.target; if (!c.checked) return;
+    document.querySelectorAll(`#pfTable input[data-sid="${CSS.escape(c.dataset.sid)}"]`).forEach(x => { if (x !== c) x.checked = false; }); });
+}
+async function applyParentPhones(){
+  const picks = [...document.querySelectorAll('#pfTable input[data-pf]:checked')].map(c => phoneCand[+c.dataset.pf]);
+  if (!picks.length) return alert('선택한 학생이 없습니다.');
+  closeModal();
+  await run(`연락처 저장 중… (${picks.length}명)`, async () => {
+    await Store.writeStudents(picks.map(p => ({id: p.st.id, data: {parentPhone: fmtPhone(p.ph), updatedAt: today()}})));
+    picks.forEach(p => { p.st.parentPhone = fmtPhone(p.ph); });
+    log('학부모 연락처 찾기', '', `외부생 DB에서 ${picks.length}명 반영`);
+  });
+  extDirty = true; renderActive();
+  alert(`학부모 연락처 ${picks.length}명 저장 완료`);
 }
 
 /* ================= 엑셀 내보내기 ================= */
@@ -429,6 +493,7 @@ document.addEventListener('change', async e => {
   try {
     await Store.updateStudent(rec.id, {[f]: v, updatedAt: today()});
     rec[f] = v; el.parentElement.classList.toggle('empty', f!=='memo' && f!=='region' && !v);
+    if (f !== 'memo') extDirty = true;   // 연락처·지역이 바뀌면 외부생 DB 탭을 열 때 재원생 제외·퇴원생 정보를 다시 계산
     setStatus('저장됨 ' + new Date().toLocaleTimeString('ko-KR'));
     (el.dataset.k==='active' ? renderActiveStatsOnly : renderWithdrawnStatsOnly)();
   } catch(err){ el.value = old; setStatus('⚠ 저장 실패'); alert('저장하지 못했습니다: ' + err.message); }
@@ -501,6 +566,7 @@ function setExternal(d){ S.external = {cols:d.cols||[], rows:d.rows||[]};
 // 신청자 보정값 id는 구글시트 원래 연락처 기준 (웹에서 연락처를 고쳐도 같은 사람으로 찾을 수 있게)
 const leadId = r => 'L_' + norm(r['이름']) + '_' + (r._origPh || r._ph || rowPhone(r));
 function rebuildExt(){
+  extDirty = false;
   const merged = {};
   // 웹에서 고친 연락처를 먼저 적용 → 고친 번호 기준으로 중복·기존 DB를 판단
   const leadsIn = (S.leads || []).map(r => {
@@ -514,20 +580,27 @@ function rebuildExt(){
     latest['설명회'] = uniq([...String(m['설명회']||'').split(', '), r['설명회']]).join(', ');
     merged[k] = latest;
   }
-  // 재원생·퇴원생 찾기: ID 또는 이름+연락처(학부모·학생)
-  const stById = new Map(), stByKey = new Map();
+  // 재원생·퇴원생 찾기: ID 또는 이름+연락처 또는 연락처+현재 학년 (학교·이름 표기가 달라도 같은 학생으로 봄)
+  // 같은 키에 재원생·퇴원생이 둘 다 있으면 재원생 우선
+  const stById = new Map(), stByKey = new Map(), stByPhLv = new Map();
+  const put = (m, k, v) => { if (!m.has(k)) m.set(k, v); };
   [['재원', S.active], ['퇴원', S.withdrawn]].forEach(([kind, obj]) => Object.values(obj).forEach(st => {
-    stById.set(String(st.id), {kind, st});
-    [st.parentPhone, st.studentPhone].map(digits).filter(Boolean).forEach(d => stByKey.set(norm(st.name) + '|' + d, {kind, st}));
+    put(stById, String(st.id), {kind, st});
+    const lv = nowLevel(st.gLevel, st.gYear);
+    [st.parentPhone, st.studentPhone].map(digits).filter(Boolean).forEach(d => {
+      put(stByKey, norm(st.name) + '|' + d, {kind, st});
+      if (lv != null) put(stByPhLv, d + '|' + lv, {kind, st});
+    });
   }));
-  const findSt = r => (r['ID'] && stById.get(String(r['ID']))) || stByKey.get(norm(r['이름']) + '|' + rowPhone(r));
-  // 퇴원생과 같은 학생 → 퇴원생 정보(학년·ID·학생 연락처·학교·지역)로 맞춤
+  const findSt = r => { const ph = rowPhone(r), lv = extLevel(r);
+    return (r['ID'] && stById.get(String(r['ID']))) || stByKey.get(norm(r['이름']) + '|' + ph) || (ph && lv != null && stByPhLv.get(ph + '|' + lv)); };
+  // 퇴원생과 같은 학생 → 퇴원생 정보(학년·ID·학생 연락처·학교·지역)로 맞춤. 학교는 학생 DB가 정확하므로 DB 값으로 바꿈
   const wdUsed = new Set();
   const asWithdrawn = (x, st) => {
     wdUsed.add(st.id); x._wd = st.id; x._inDB = '퇴원';
     if (st.gLevel != null) { x['학년'] = `${curGradeOf(st)} (퇴원생 DB)`; x._lv = st.gLevel; x._yr = st.gYear; }
     if (!x['ID']) x['ID'] = st.id;
-    if (!x['학교'] && st.school) x['학교'] = st.school;
+    if (st.school) x['학교'] = st.school;
     if (!x['학생 연락처'] && st.studentPhone) x['학생 연락처'] = st.studentPhone;
     if (st.region) setRowRegion(x, st.region);
     return x;
@@ -616,7 +689,7 @@ function extCols(){
 }
 
 // 외부생 DB는 용량이 커서 외부생 탭을 처음 열 때 불러옴
-let extLoaded = false;
+let extLoaded = false, extDirty = false;
 async function ensureExternal(){
   if (extLoaded) return;
   busy('외부생 DB 불러오는 중…');
@@ -1222,7 +1295,7 @@ document.querySelectorAll('nav button').forEach(b => b.onclick = () => {
   document.querySelectorAll('nav button').forEach(x=>x.classList.toggle('on', x===b));
   document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('on', t.id==='tab-'+b.dataset.tab));
   if (b.dataset.tab === 'backup') renderUsers();
-  if (b.dataset.tab === 'external') ensureExternal();
+  if (b.dataset.tab === 'external') { if (extLoaded && extDirty) { extDirty = false; rebuildExt(); renderExternal(); } ensureExternal(); }
   if (b.dataset.tab === 'optout') renderOptOut();
 });
 $('#modalBg').addEventListener('click', e => { if (e.target.id==='modalBg') closeModal(); });

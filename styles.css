@@ -108,3 +108,7 @@ td.dim{color:var(--muted)}
 .help ul{margin:0;padding-left:20px}
 .help li{margin:3px 0}
 .help code{background:var(--bg);padding:1px 5px;border-radius:4px}
+/* 외부생 DB에서 학부모 연락처 찾기 */
+.tag.warn{background:var(--warn-weak);color:var(--warn)}
+.pf-diff{color:var(--warn);font-weight:600}
+#pfTable td,#pfTable th{white-space:nowrap}
