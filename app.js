@@ -185,18 +185,30 @@ async function rosterUpload(fname, sheets){
   const missingCols = ['grade','school','cls','teacher'].filter(f=>map[f]==null).map(f=>({grade:'학년',school:'학교',cls:'클래스',teacher:'교사'}[f]));
   pending = {fname, file};
   const s = r => esc(r.name) + `<span style="opacity:.6">(${esc(r.id)})</span>`;
+  // 잘못된 파일(예: 지난 학기 수강 기록까지 들어간 명단) 경고
+  const avgCls = ids.reduce((n, id) => n + file[id].classes.length, 0) / ids.length;
+  const warns = [];
+  if (actCnt && isNew.length >= 20 && isNew.length > actCnt * 0.2) warns.push(`신규 학생이 <b>${isNew.length}명</b>으로 많습니다 (지금 재원생의 ${Math.round(isNew.length / actCnt * 100)}%).`);
+  if (returned.length >= 5) warns.push(`이미 퇴원한 학생 <b>${returned.length}명</b>이 다시 재원으로 돌아옵니다.`);
+  if (avgCls > 3) warns.push(`학생 1명당 클래스가 평균 <b>${avgCls.toFixed(1)}개</b>입니다 (보통 1~2개). 지난 학기 수강 기록까지 들어간 명단일 수 있습니다.`);
+  if (actCnt && ids.length > actCnt * 1.3) warns.push(`파일의 학생 수(<b>${ids.length}명</b>)가 지금 재원생(${actCnt}명)보다 크게 많습니다.`);
+  if (actCnt && leaving.length > actCnt * 0.4) warns.push(`기존 재원생의 <b>${Math.round(leaving.length / actCnt * 100)}%</b>가 퇴원 처리됩니다.`);
   modal(`<h3>배치생 리스트 반영 확인</h3>
     <p class="muted">파일: ${esc(fname)} · 시트: ${esc(sheet.name)} · ${nRows}행 → 학생 <b>${ids.length}명</b> (여러 클래스 수강생은 한 명으로 합침)</p>
     ${missingCols.length ? `<div class="alert">인식하지 못한 열: ${missingCols.join(', ')} (해당 정보는 비어있게 됩니다)</div>` : ''}
-    ${actCnt && leaving.length > actCnt*0.4 ? `<div class="alert">⚠ 기존 재원생의 ${Math.round(leaving.length/actCnt*100)}%가 퇴원 처리됩니다. 올바른 파일인지 확인해 주세요.</div>` : ''}
+    ${warns.length ? `<div class="alert danger-box"><b>⚠ 올바른 명단인지 확인해 주세요</b><ul>${warns.map(w => `<li>${w}</li>`).join('')}</ul>
+      현재 수강 중인 클래스만 들어간 최신 배치생 리스트가 맞는지 확인한 뒤 반영하세요. 잘못 반영하면 퇴원생 명단이 틀어집니다.
+      <label class="radio" style="margin-top:8px;display:flex"><input type="checkbox" id="rosterOk"> 내용을 확인했고, 이 파일로 반영합니다</label></div>` : ''}
     <details><summary>기존 재원생 정보 갱신: <b>${kept.length}명</b> (연락처·메모 유지)</summary></details>
     <details ${isNew.length && isNew.length<=80?'open':''}><summary>신규 등록: <b>${isNew.length}명</b></summary>${nameList(isNew.map(id=>file[id]), s)}</details>
     <details ${returned.length?'open':''}><summary>퇴원생 → 재원 복귀: <b>${returned.length}명</b> (기존 연락처 복원)</summary>${nameList(returned.map(id=>file[id]), s)}</details>
     <details ${leaving.length?'open':''}><summary>명단에 없어 퇴원생으로 이동: <b style="color:var(--warn)">${leaving.length}명</b></summary>${nameList(leaving.map(id=>S.active[id]), s)}</details>
     <div class="row" style="justify-content:flex-end;margin-top:16px">
       <button class="btn" onclick="closeModal()">취소</button>
-      <button class="btn primary" onclick="applyRoster()">반영하기</button>
+      <button class="btn primary" id="rosterApply" onclick="applyRoster()" ${warns.length ? 'disabled' : ''}>반영하기</button>
     </div>`);
+  // 경고가 있으면 '확인했습니다'를 체크해야 반영 가능
+  if (warns.length) $('#rosterOk').onchange = e => { $('#rosterApply').disabled = !e.target.checked; };
 }
 async function applyRoster(){
   const {fname, file} = pending; const d = today();

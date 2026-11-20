@@ -112,3 +112,6 @@ td.dim{color:var(--muted)}
 .tag.warn{background:var(--warn-weak);color:var(--warn)}
 .pf-diff{color:var(--warn);font-weight:600}
 #pfTable td,#pfTable th{white-space:nowrap}
+.alert.danger-box{background:#fdecec;color:var(--danger);border:1px solid #f5c2c2}
+.alert.danger-box ul{margin:6px 0;padding-left:20px}
+.btn:disabled{opacity:.45;cursor:not-allowed}
